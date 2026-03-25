@@ -1667,13 +1667,20 @@ class Scheduler {
      * @param scheduleTick - 	渲染间隔（ms），默认50ms
      */
     static start(scheduleTick) {
-        Scheduler.dispatch();
-        if (window.requestAnimationFrame) {
-            window.requestAnimationFrame(Scheduler.start);
+        if (Scheduler.started) {
+            return;
         }
-        else {
-            window.setTimeout(Scheduler.start, scheduleTick || 50);
-        }
+        Scheduler.started = true;
+        const tick = () => {
+            Scheduler.dispatch();
+            if (window.requestAnimationFrame) {
+                window.requestAnimationFrame(tick);
+            }
+            else {
+                window.setTimeout(tick, scheduleTick || 50);
+            }
+        };
+        tick();
     }
     /**
      * 添加任务
@@ -1684,18 +1691,21 @@ class Scheduler {
         if (!Util.isFunction(foo)) {
             throw new NError("invoke", "Scheduler.addTask", "0", "function");
         }
+        if (Scheduler.tasks.some(item => item.func === foo && item.thiser === thiser)) {
+            return;
+        }
         Scheduler.tasks.push({ func: foo, thiser: thiser });
     }
     /**
      * 移除任务
      * @param foo - 	任务函数
      */
-    static removeTask(foo) {
+    static removeTask(foo, thiser) {
         if (!Util.isFunction(foo)) {
             throw new NError("invoke", "Scheduler.removeTask", "0", "function");
         }
-        let ind = -1;
-        if ((ind = Scheduler.tasks.indexOf(foo)) !== -1) {
+        const ind = Scheduler.tasks.findIndex(item => item.func === foo && (thiser === undefined || item.thiser === thiser));
+        if (ind !== -1) {
             Scheduler.tasks.splice(ind, 1);
         }
     }
@@ -1704,6 +1714,10 @@ class Scheduler {
  * 待执行任务列表
  */
 Scheduler.tasks = [];
+/**
+ * 调度器是否已经启动
+ */
+Scheduler.started = false;
 
 /**
  * nodom提示消息
@@ -1719,15 +1733,15 @@ class Nodom {
      * @param selector -  根模块容器选择器，默认使用document.body
      */
     static app(clazz, selector) {
-        //设置渲染器的根 element
-        Renderer.setRootEl(document.querySelector(selector) || document.body);
-        //渲染器启动渲染任务
-        Scheduler.addTask(Renderer.render, Renderer);
-        //添加请求清理任务
-        Scheduler.addTask(RequestManager.clearCache);
-        //启动调度器
-        Scheduler.start();
-        ModuleFactory.get(clazz).active();
+        this.mountApp(clazz, selector, false);
+    }
+    /**
+     * 重新挂载应用(用于开发时热更新)
+     * @param clazz -     模块类
+     * @param selector -  根模块容器选择器
+     */
+    static remount(clazz, selector) {
+        this.mountApp(clazz, selector, true);
     }
     /**
      * 启用debug模式
@@ -1865,6 +1879,35 @@ class Nodom {
      */
     static setRejectTime(time) {
         RequestManager.setRejectTime(time);
+    }
+    /**
+     * mount or remount app
+     * @param clazz -         模块类
+     * @param selector -      根模块容器选择器
+     * @param replaceExisting - 是否替换已有主模块
+     */
+    static mountApp(clazz, selector, replaceExisting) {
+        const rootEl = document.querySelector(selector) || Renderer.getRootEl() || document.body;
+        const main = ModuleFactory.getMain();
+        if (replaceExisting && main) {
+            main.destroy();
+            if (rootEl) {
+                rootEl.innerHTML = '';
+            }
+        }
+        //设置渲染器的根 element
+        Renderer.setRootEl(rootEl);
+        //渲染器启动渲染任务
+        Scheduler.addTask(Renderer.render, Renderer);
+        //添加请求清理任务
+        Scheduler.addTask(RequestManager.clearCache);
+        //启动调度器
+        Scheduler.start();
+        const module = ModuleFactory.get(clazz);
+        if (module) {
+            ModuleFactory.setMain(module);
+            module.active();
+        }
     }
 }
 
@@ -5260,10 +5303,17 @@ class Module {
      * 销毁
      */
     destroy() {
+        var _a, _b, _c;
+        Renderer.remove(this);
         this.unmount(true);
         for (const m of this.children) {
             m.destroy();
         }
+        this.eventFactory.clear();
+        if ((_c = (_b = (_a = this.domManager) === null || _a === void 0 ? void 0 : _a.renderedTree) === null || _b === void 0 ? void 0 : _b.node) === null || _c === void 0 ? void 0 : _c.parentElement) {
+            this.domManager.renderedTree.node.parentElement.removeChild(this.domManager.renderedTree.node);
+        }
+        this.domManager.renderedTree = null;
         this.clearCompositionCleanups();
         //清理css url
         CssManager.clearModuleRules(this);

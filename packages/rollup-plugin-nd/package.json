@@ -1,17 +1,47 @@
 {
   "name": "@nodomx/rollup-plugin-nd",
   "version": "0.1.0",
-  "private": true,
+  "description": "Rollup plugin for importing NodomX .nd single-file components.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/bloom_lmh/nodomx.git",
+    "directory": "packages/rollup-plugin-nd"
+  },
+  "homepage": "https://gitee.com/bloom_lmh/nodomx",
+  "bugs": {
+    "url": "https://gitee.com/bloom_lmh/nodomx/issues"
+  },
+  "keywords": [
+    "nodomx",
+    "nd",
+    "rollup",
+    "plugin"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "build": "node ./tests/rollup.smoke.mjs",
     "test": "node ./tests/rollup.smoke.mjs"
   },
   "dependencies": {
-    "@nodomx/nd-compiler": "0.1.0"
+    "@nodomx/nd-compiler": "^0.1.0"
+  },
+  "peerDependencies": {
+    "nodom3": "^0.2.3",
+    "rollup": "^3.26.0"
   }
 }

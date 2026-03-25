@@ -30,15 +30,16 @@ export class Nodom{
      * @param selector -  根模块容器选择器，默认使用document.body
      */
     public static app(clazz:unknown,selector?:string){
-        //设置渲染器的根 element
-        Renderer.setRootEl(document.querySelector(selector)||document.body);
-        //渲染器启动渲染任务
-        Scheduler.addTask(Renderer.render, Renderer);
-        //添加请求清理任务
-        Scheduler.addTask(RequestManager.clearCache);
-        //启动调度器
-        Scheduler.start();
-        ModuleFactory.get(<UnknownClass>clazz).active();
+        this.mountApp(clazz,selector,false);
+    }
+
+    /**
+     * 重新挂载应用(用于开发时热更新)
+     * @param clazz -     模块类
+     * @param selector -  根模块容器选择器
+     */
+    public static remount(clazz:unknown,selector?:string){
+        this.mountApp(clazz,selector,true);
     }
 
     /**
@@ -183,6 +184,35 @@ export class Nodom{
     public static setRejectTime(time:number){
         RequestManager.setRejectTime(time);
     }
-}
 
+    /**
+     * mount or remount app
+     * @param clazz -         模块类
+     * @param selector -      根模块容器选择器
+     * @param replaceExisting - 是否替换已有主模块
+     */
+    private static mountApp(clazz:unknown,selector?:string,replaceExisting?:boolean){
+        const rootEl = document.querySelector(selector) || Renderer.getRootEl() || document.body;
+        const main = ModuleFactory.getMain();
+        if(replaceExisting && main){
+            main.destroy();
+            if(rootEl){
+                rootEl.innerHTML = '';
+            }
+        }
+        //设置渲染器的根 element
+        Renderer.setRootEl(rootEl);
+        //渲染器启动渲染任务
+        Scheduler.addTask(Renderer.render, Renderer);
+        //添加请求清理任务
+        Scheduler.addTask(RequestManager.clearCache);
+        //启动调度器
+        Scheduler.start();
+        const module = ModuleFactory.get(<UnknownClass>clazz);
+        if(module){
+            ModuleFactory.setMain(module);
+            module.active();
+        }
+    }
+}
 

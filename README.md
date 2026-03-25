@@ -2467,6 +2467,7 @@ npm run dev
 ```
 
 This starts Rollup watch mode and serves the app on `http://127.0.0.1:3000`.
+When source files change, the dev server now hot-imports the rebuilt entry and remounts the app root instead of reloading the entire page.
 
 ### Workspace packages
 

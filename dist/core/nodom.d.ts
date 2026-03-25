@@ -48,6 +48,9 @@ export declare let NodomMessage: {
         notupd: string;
         notremove: string;
         notremove1: string;
+        /**
+         * 启用debug模式
+         */
         namedinvalid: string;
         initial: string;
         jsonparse: string;
@@ -78,6 +81,12 @@ export declare class Nodom {
      * @param selector -  根模块容器选择器，默认使用document.body
      */
     static app(clazz: unknown, selector?: string): void;
+    /**
+     * 重新挂载应用(用于开发时热更新)
+     * @param clazz -     模块类
+     * @param selector -  根模块容器选择器
+     */
+    static remount(clazz: unknown, selector?: string): void;
     /**
      * 启用debug模式
      */
@@ -171,4 +180,11 @@ export declare class Nodom {
      * @param time -  时间间隔（ms）
      */
     static setRejectTime(time: number): void;
+    /**
+     * mount or remount app
+     * @param clazz -         模块类
+     * @param selector -      根模块容器选择器
+     * @param replaceExisting - 是否替换已有主模块
+     */
+    private static mountApp;
 }

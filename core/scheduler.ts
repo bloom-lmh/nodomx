@@ -10,7 +10,12 @@ export class Scheduler{
 	/**
 	 * 待执行任务列表
 	 */
-	private static tasks:Array<object> = [];
+	private static tasks:Array<{func:()=>void,thiser?:object}> = [];
+
+	/**
+	 * 调度器是否已经启动
+	 */
+	private static started:boolean = false;
 	
 	/**
 	 * 执行任务
@@ -32,12 +37,19 @@ export class Scheduler{
 	 * @param scheduleTick - 	渲染间隔（ms），默认50ms
 	 */
 	public static start(scheduleTick?:number){
-		Scheduler.dispatch();
-		if(window.requestAnimationFrame){
-			window.requestAnimationFrame(Scheduler.start);
-		}else{
-			window.setTimeout(Scheduler.start,scheduleTick||50);
-		}		
+		if(Scheduler.started){
+			return;
+		}
+		Scheduler.started = true;
+		const tick = ()=>{
+			Scheduler.dispatch();
+			if(window.requestAnimationFrame){
+				window.requestAnimationFrame(tick);
+			}else{
+				window.setTimeout(tick,scheduleTick||50);
+			}
+		};
+		tick();
 	}
 
 	/**
@@ -49,6 +61,9 @@ export class Scheduler{
 		if(!Util.isFunction(foo)){
 			throw new NError("invoke","Scheduler.addTask","0","function");
 		}
+		if(Scheduler.tasks.some(item=>item.func === foo && item.thiser === thiser)){
+			return;
+		}
 		Scheduler.tasks.push({func:foo,thiser:thiser});
 	}
 
@@ -56,12 +71,12 @@ export class Scheduler{
 	 * 移除任务
 	 * @param foo - 	任务函数
 	 */
-	public static removeTask(foo){
+	public static removeTask(foo,thiser?:object){
 		if(!Util.isFunction(foo)){
 			throw new NError("invoke","Scheduler.removeTask","0","function");
 		}
-		let ind = -1;
-		if((ind = Scheduler.tasks.indexOf(foo)) !== -1){
+		const ind = Scheduler.tasks.findIndex(item=>item.func === foo && (thiser === undefined || item.thiser === thiser));
+		if(ind !== -1){
 			Scheduler.tasks.splice(ind,1);
 		}	
 	}

@@ -1,11 +1,39 @@
 {
   "name": "@nodomx/rollup-plugin-dev-server",
   "version": "0.1.0",
-  "private": true,
+  "description": "Rollup development server with hot entry remounts for NodomX apps.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./runtime": "./src/runtime.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/bloom_lmh/nodomx.git",
+    "directory": "packages/rollup-plugin-dev-server"
+  },
+  "homepage": "https://gitee.com/bloom_lmh/nodomx",
+  "bugs": {
+    "url": "https://gitee.com/bloom_lmh/nodomx/issues"
+  },
+  "keywords": [
+    "nodomx",
+    "nodom",
+    "rollup",
+    "dev-server",
+    "hmr"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "build": "node ./tests/dev-server.smoke.mjs",

@@ -4,6 +4,7 @@ import { nodomNd } from "@nodomx/rollup-plugin-nd";
 
 export default {
   input: "./src/main.js",
+  preserveSymlinks: true,
   output: {
     file: "./dist/main.js",
     format: "esm",

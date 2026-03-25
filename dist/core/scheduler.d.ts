@@ -9,6 +9,10 @@ export declare class Scheduler {
      */
     private static tasks;
     /**
+     * 调度器是否已经启动
+     */
+    private static started;
+    /**
      * 执行任务
      */
     static dispatch(): void;
@@ -27,5 +31,5 @@ export declare class Scheduler {
      * 移除任务
      * @param foo - 	任务函数
      */
-    static removeTask(foo: any): void;
+    static removeTask(foo: any, thiser?: object): void;
 }

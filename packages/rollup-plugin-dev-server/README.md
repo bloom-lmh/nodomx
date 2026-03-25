@@ -6,7 +6,7 @@ Features:
 
 - serves `public/` and `dist/`
 - injects a tiny live reload client into HTML
-- reloads the page after each Rollup rebuild
+- hot-imports the rebuilt entry module and remounts the app root
 
 Example:
 
@@ -22,4 +22,18 @@ export default {
     })
   ]
 };
+```
+
+For app bootstrapping, pair it with the runtime helper:
+
+```js
+import { Nodom } from "nodom3";
+import { bootstrapNodomApp } from "@nodomx/rollup-plugin-dev-server/runtime";
+
+await bootstrapNodomApp({
+  entryUrl: import.meta.url,
+  load: () => import("./App.nd"),
+  nodom: Nodom,
+  selector: "#app"
+});
 ```

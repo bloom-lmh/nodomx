@@ -9,3 +9,4 @@ Commands:
 - `npm run build`
 
 `npm run dev` starts Rollup watch mode and the built-in development server on `http://127.0.0.1:3000`.
+The dev server performs hot entry remounts for the NodomX app instead of reloading the whole page.

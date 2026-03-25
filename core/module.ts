@@ -429,10 +429,16 @@ export class Module {
      * 销毁
      */
     public destroy(){
+        Renderer.remove(this);
         this.unmount(true);
         for(const m of this.children){
             m.destroy();
         }
+        this.eventFactory.clear();
+        if(this.domManager?.renderedTree?.node?.parentElement){
+            this.domManager.renderedTree.node.parentElement.removeChild(this.domManager.renderedTree.node);
+        }
+        this.domManager.renderedTree = null;
         this.clearCompositionCleanups();
         //清理css url
         CssManager.clearModuleRules(this);

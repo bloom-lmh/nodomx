@@ -15,6 +15,7 @@ export function nodomDevServer(options = {}) {
     const fallback = options.fallback || "/index.html";
     const forceStart = options.forceStart === true;
     const clients = new Set();
+    const changedFiles = new Set();
 
     let server;
     let serverPromise;
@@ -35,7 +36,13 @@ export function nodomDevServer(options = {}) {
                 return;
             }
             await serverPromise;
-            broadcastReload(clients);
+            broadcastUpdate(clients, changedFiles);
+            changedFiles.clear();
+        },
+        watchChange(id) {
+            if (id) {
+                changedFiles.add(id);
+            }
         },
         async closeWatcher() {
             await closeServer();
@@ -198,6 +205,15 @@ function broadcastReload(clients) {
     }
 }
 
+function broadcastUpdate(clients, changedFiles) {
+    const payload = JSON.stringify({
+        changed: Array.from(changedFiles)
+    });
+    for (const client of clients) {
+        client.write(`event: update\ndata: ${payload}\n\n`);
+    }
+}
+
 function injectClient(html) {
     const snippet = `<script type="module" src="${CLIENT_PATH}"></script>`;
     if (html.includes(snippet)) {
@@ -237,9 +253,35 @@ function contentType(file) {
 function clientScript(ssePath) {
     return `
 const source = new EventSource(${JSON.stringify(ssePath)});
+const state = window.__NODOMX_HMR__ = window.__NODOMX_HMR__ || {
+    entryUrl: "",
+    pending: Promise.resolve()
+};
+
+source.addEventListener("update", async () => {
+    if (!state.entryUrl) {
+        window.location.reload();
+        return;
+    }
+    const entryUrl = withTimestamp(state.entryUrl);
+    state.pending = state.pending
+        .catch(() => {})
+        .then(() => import(entryUrl))
+        .catch((error) => {
+            console.error("[nodomx-hmr] hot update failed, reloading page.", error);
+            window.location.reload();
+        });
+});
+
 source.addEventListener("reload", () => {
     window.location.reload();
 });
+
+function withTimestamp(url) {
+    const next = new URL(url, window.location.href);
+    next.searchParams.set("t", Date.now().toString());
+    return next.href;
+}
 `.trim();
 }
 

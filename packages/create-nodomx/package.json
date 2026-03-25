@@ -1,7 +1,7 @@
 {
   "name": "create-nodomx",
   "version": "0.1.0",
-  "private": true,
+  "description": "Starter generator for NodomX applications.",
   "type": "module",
   "bin": {
     "create-nodomx": "./bin/create-nodomx.mjs"
@@ -12,6 +12,28 @@
     "src",
     "README.md"
   ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/bloom_lmh/nodomx.git",
+    "directory": "packages/create-nodomx"
+  },
+  "homepage": "https://gitee.com/bloom_lmh/nodomx",
+  "bugs": {
+    "url": "https://gitee.com/bloom_lmh/nodomx/issues"
+  },
+  "keywords": [
+    "nodomx",
+    "create",
+    "scaffold",
+    "starter"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "node ./tests/create.smoke.mjs",
     "test": "node ./tests/create.smoke.mjs"

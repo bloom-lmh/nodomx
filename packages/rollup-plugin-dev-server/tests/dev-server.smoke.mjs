@@ -4,6 +4,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { nodomDevServer } from "../src/index.js";
+import { bootstrapNodomApp } from "../src/runtime.js";
 
 const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nd-dev-server-"));
 const publicDir = path.join(tmpDir, "public");
@@ -41,6 +42,31 @@ assert.equal(js.body, "console.log('hello dev server');");
 
 const client = await request(`${info.url}/@nodomx/dev-client.js`);
 assert.match(client.body, /EventSource/);
+assert.match(client.body, /__NODOMX_HMR__/);
+
+global.window = { __NODOMX_HMR__: {} };
+let remounted = null;
+const nodom = {
+    remount(clazz, selector) {
+    remounted = { clazz, selector };
+    }
+};
+
+class DemoApp {}
+await bootstrapNodomApp({
+    entryUrl: "/dist/main.js",
+    load: async () => ({ default: DemoApp }),
+    nodom,
+    selector: "#app"
+});
+
+assert.equal(global.window.__NODOMX_HMR__.entryUrl, "/dist/main.js");
+assert.deepEqual(remounted, {
+    clazz: DemoApp,
+    selector: "#app"
+});
+
+delete global.window;
 
 await plugin.closeBundle();
 

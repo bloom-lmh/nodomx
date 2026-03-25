@@ -1,7 +1,7 @@
 {
   "name": "@nodomx/nd-compiler",
   "version": "0.1.0",
-  "private": true,
+  "description": "Compiler utilities for NodomX .nd single-file components.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
@@ -15,6 +15,28 @@
     "src",
     "README.md"
   ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/bloom_lmh/nodomx.git",
+    "directory": "packages/nd-compiler"
+  },
+  "homepage": "https://gitee.com/bloom_lmh/nodomx",
+  "bugs": {
+    "url": "https://gitee.com/bloom_lmh/nodomx/issues"
+  },
+  "keywords": [
+    "nodomx",
+    "nd",
+    "compiler",
+    "single-file-component"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "node ./tests/compiler.smoke.mjs",
     "test": "node ./tests/compiler.smoke.mjs"

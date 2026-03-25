@@ -5,6 +5,8 @@ Starter generator for NodomX applications.
 Usage:
 
 ```bash
+npm create nodomx@latest my-app
+npx create-nodomx@latest my-app
 create-nodomx my-app
 create-nodomx my-app --install
 create-nodomx my-app --package-mode local --install
