@@ -1,0 +1,14 @@
+{
+  "name": "@nodomx/rollup-plugin-dev-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "build": "node ./tests/dev-server.smoke.mjs",
+    "test": "node ./tests/dev-server.smoke.mjs"
+  }
+}

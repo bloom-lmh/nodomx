@@ -2447,12 +2447,35 @@ import App from "./App.nd";
 
 The repository root build also loads this plugin now, and `npm run watch` will rebuild when imported `.nd` files change.
 
+### Scaffold and dev server
+
+The repository now also includes:
+
+- `create-nodomx`: starter generator for application projects
+- `@nodomx/rollup-plugin-dev-server`: lightweight Rollup development server with live reload
+
+Create a starter app locally from this repository:
+
+```bash
+node ./packages/create-nodomx/bin/create-nodomx.mjs my-app --package-mode local --install
+```
+
+Inside the generated project:
+
+```bash
+npm run dev
+```
+
+This starts Rollup watch mode and serves the app on `http://127.0.0.1:3000`.
+
 ### Workspace packages
 
 The monorepo now includes:
 
 - `packages/nd-compiler`: `.nd` parser, compiler, CLI and watch utilities
 - `packages/rollup-plugin-nd`: Rollup plugin for direct `.nd` imports
+- `packages/rollup-plugin-dev-server`: Rollup-based development server with live reload
+- `packages/create-nodomx`: starter scaffold generator
 - `packages/vscode-extension`: local VSCode extension and language server
 
 ### VSCode extension
@@ -2483,8 +2506,3 @@ The extension now provides:
 - language server diagnostics for missing or unknown template symbols
 - completions for `setup()` exposed bindings, template directives and composition APIs
 - go-to-definition from template bindings back to `setup()` declarations
-
-- `.nd` file registration
-- block syntax highlighting for template/script/style
-- `{{ ... }}` interpolation highlighting
-- command: `NodomX: Compile Current .nd File`

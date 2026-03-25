@@ -1,0 +1,19 @@
+{
+  "name": "__PROJECT_NAME__",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rollup -c rollup.config.mjs -w",
+    "build": "rollup -c rollup.config.mjs"
+  },
+  "dependencies": {
+    "nodom3": "__NODOM_SPEC__"
+  },
+  "devDependencies": {
+    "@nodomx/nd-compiler": "__ND_COMPILER_SPEC__",
+    "@nodomx/rollup-plugin-dev-server": "__DEV_SERVER_SPEC__",
+    "@nodomx/rollup-plugin-nd": "__ND_PLUGIN_SPEC__",
+    "@rollup/plugin-node-resolve": "^15.1.0",
+    "rollup": "^3.26.0"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "create-nodomx",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "create-nodomx": "./bin/create-nodomx.mjs"
+  },
+  "files": [
+    "bin",
+    "template",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node ./tests/create.smoke.mjs",
+    "test": "node ./tests/create.smoke.mjs"
+  }
+}

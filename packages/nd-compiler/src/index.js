@@ -389,7 +389,7 @@ async function resolveImportSource(inputFile, options) {
     if (typeof options.importSource === "string" && options.importSource.trim() !== "") {
         return options.importSource;
     }
-    return inferImportSource(inputFile);
+    return "nodom3";
 }
 
 function resolveOutFile(inputFile, options) {

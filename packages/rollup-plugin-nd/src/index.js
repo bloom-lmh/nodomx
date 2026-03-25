@@ -1,6 +1,6 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { compileNd, inferImportSource } from "@nodomx/nd-compiler";
+import { compileNd } from "@nodomx/nd-compiler";
 
 export function nodomNd(options = {}) {
     return {
@@ -25,7 +25,7 @@ export function nodomNd(options = {}) {
             this.addWatchFile(id);
 
             const source = await fsp.readFile(id, "utf8");
-            const importSource = options.importSource || await inferImportSource(id);
+            const importSource = options.importSource || "nodom3";
             const code = compileNd(source, {
                 filename: id,
                 importSource,
