@@ -43,6 +43,11 @@ export declare class Renderer {
      */
     static render(): void;
     /**
+     * flush pending render queue synchronously
+     * @param maxRounds - max render rounds
+     */
+    static flush(maxRounds?: number): void;
+    /**
      * 渲染dom
      * @remarks
      * 此过程将VirtualDom转换为RenderedDom。

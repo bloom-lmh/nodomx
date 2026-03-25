@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(__dirname, "..", "..");
+export const officialNpmRegistry = "https://registry.npmjs.org/";
 
 export const publishablePackages = [
     {
@@ -37,7 +38,7 @@ export function resolveRepoPath(...segments) {
 }
 
 export function incrementVersion(version, bump) {
-    const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+    const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(version);
     if (!match) {
         throw new Error(`Unsupported version format: ${version}`);
     }
@@ -53,7 +54,7 @@ export function incrementVersion(version, bump) {
         case "patch":
             return `${major}.${minor}.${patch + 1}`;
         default:
-            if (/^\d+\.\d+\.\d+$/.test(bump)) {
+            if (/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(bump)) {
                 return bump;
             }
             throw new Error(`Unsupported bump target: ${bump}`);

@@ -2467,8 +2467,8 @@ npm run dev
 ```
 
 This starts Rollup watch mode and serves the app on `http://127.0.0.1:3000`.
-When source files change, the dev server now hot-imports the rebuilt entry and remounts the app root instead of reloading the entire page.
-Top-level `setup()` state is also restored during hot remounts for `useState` and `useReactive` bindings.
+When `.nd` files change, the dev server now hot-imports the rebuilt entry, swaps only the affected component subtrees, and restores their nested `setup()` state for `useState` and `useReactive` bindings.
+When non-`.nd` files change, it falls back to a root remount with recursive state restore instead of reloading the entire page.
 
 ### Release workflow
 
@@ -2482,6 +2482,7 @@ The npm-facing packages are:
 Useful release commands from the repository root:
 
 ```bash
+npm run release:preflight
 npm run release:version -- patch
 npm run release:changelog -- 0.1.0 --since <git-ref>
 npm run release:check
@@ -2490,9 +2491,12 @@ npm run release:publish -- --dry-run
 
 Notes:
 
+- `release:preflight` verifies the official npm registry and current publisher login
 - `release:version` keeps the publishable package versions aligned
+- `release:version` also accepts an exact version such as `0.3.0-beta.1`
 - `release:check` runs build, test and `npm pack` validation for every publishable package
-- `release:publish` publishes in dependency order, or simulates that flow with `--dry-run`
+- `release:publish` publishes to the official npm registry in dependency order, or simulates that flow with `--dry-run`
+- See `docs/npm-release-checklist.md` for the recommended publisher, tag and version policy
 
 ### Workspace packages
 

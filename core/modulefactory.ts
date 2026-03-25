@@ -116,9 +116,6 @@ export class ModuleFactory {
     public static addClass(clazz: unknown, alias?: string) {
         //转换成小写
         const name = (<UnknownClass>clazz).name.toLowerCase();
-        if (this.classes.has(name)) {
-            return;
-        }
         this.classes.set(name, <UnknownClass>clazz);
         //添加别名
         if (alias) {

@@ -7,8 +7,10 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "node ./tests/composition.smoke.mjs",
-    "test:smoke": "node ./tests/composition.smoke.mjs",
+    "test": "npm run test:composition && npm run test:hmr",
+    "test:smoke": "npm run test:composition",
+    "test:composition": "node ./tests/composition.smoke.mjs",
+    "test:hmr": "node ./tests/hmr.smoke.mjs",
     "test:nd": "npm run test -w @nodomx/nd-compiler",
     "test:nd:rollup": "npm run test -w @nodomx/rollup-plugin-nd",
     "test:dev-server": "npm run test -w @nodomx/rollup-plugin-dev-server",
@@ -26,6 +28,7 @@
     "pack:nd:rollup": "npm pack -w @nodomx/rollup-plugin-nd",
     "pack:dev-server": "npm pack -w @nodomx/rollup-plugin-dev-server",
     "pack:create": "npm pack -w create-nodomx",
+    "release:preflight": "node ./scripts/release/preflight.mjs",
     "release:version": "node ./scripts/release/version.mjs",
     "release:changelog": "node ./scripts/release/changelog.mjs",
     "release:check": "npm run build:all && npm run test:all && npm run pack:nd && npm run pack:nd:rollup && npm run pack:dev-server && npm run pack:create",

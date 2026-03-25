@@ -22,15 +22,9 @@ export declare let NodomMessage: {
         dataItem: string;
         route: string;
         routeView: string;
-        /**
-         * nodom提示消息
-         */
         plugin: string;
         resource: string;
         root: string;
-        /**
-         * Nodom接口暴露类
-         */
         element: string;
     };
     ErrorMsgs: {
@@ -40,6 +34,9 @@ export declare let NodomMessage: {
         invoke: string;
         invoke1: string;
         invoke2: string;
+        /**
+         * Nodom接口暴露类
+         */
         invoke3: string;
         exist: string;
         exist1: string;
@@ -48,12 +45,6 @@ export declare let NodomMessage: {
         notupd: string;
         notremove: string;
         notremove1: string;
-        /**
-         * 重新挂载应用并恢复热更新状态
-         * @param clazz -       模块类
-         * @param selector -    根模块容器选择器
-         * @param hotState -    热更新状态快照
-         */
         namedinvalid: string;
         initial: string;
         jsonparse: string;
@@ -62,6 +53,13 @@ export declare let NodomMessage: {
         config1: string;
         itemnotempty: string;
         itemincorrect: string;
+        /**
+         * 重新挂载应用并恢复热更新状态
+         * @param clazz -       模块类
+         * @param selector -    根模块容器选择器
+         * @param hotState -    热更新状态快照
+         * @param changedFiles - 触发热更新的文件列表
+         */
         needEndTag: string;
         needStartTag: string;
         tagError: string;
@@ -95,8 +93,9 @@ export declare class Nodom {
      * @param clazz -       模块类
      * @param selector -    根模块容器选择器
      * @param hotState -    热更新状态快照
+     * @param changedFiles - 触发热更新的文件列表
      */
-    static hotReload(clazz: unknown, selector?: string, hotState?: Record<string, unknown>): void;
+    static hotReload(clazz: unknown, selector?: string, hotState?: Record<string, unknown>, changedFiles?: string[]): void;
     /**
      * 捕获主模块热更新状态
      * @returns 热更新状态
@@ -202,4 +201,24 @@ export declare class Nodom {
      * @param replaceExisting - 是否替换已有主模块
      */
     private static mountApp;
+    /**
+     * try to refresh only changed nd component subtrees
+     * @param changedFiles - changed nd files
+     * @returns true if handled by subtree hot swap
+     */
+    private static reloadChangedModules;
+    /**
+     * collect highest matched component targets for subtree hot replacement
+     * @param module - current module
+     * @param hotIds - changed hot ids
+     * @returns reload targets
+     */
+    private static collectHotReloadTargets;
+    /**
+     * normalize changed files from the dev server payload
+     * only pure .nd updates can use subtree hmr safely
+     * @param changedFiles - raw changed files
+     * @returns normalized nd file ids
+     */
+    private static normalizeChangedFiles;
 }

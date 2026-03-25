@@ -15,11 +15,12 @@ export async function bootstrapNodomApp(options) {
 
     const module = await load();
     const App = resolveModuleClass(module);
+    const changedFiles = readChangedFiles();
     const hotState = typeof nodom.captureHotState === "function"
         ? nodom.captureHotState()
         : undefined;
     if (typeof nodom.hotReload === "function") {
-        nodom.hotReload(App, selector, hotState);
+        nodom.hotReload(App, selector, hotState, changedFiles);
     } else {
         nodom.remount(App, selector);
     }
@@ -46,4 +47,16 @@ function resolveModuleClass(module) {
         return firstExport;
     }
     throw new Error("The loaded module does not export a NodomX module class.");
+}
+
+function readChangedFiles() {
+    if (typeof window === "undefined") {
+        return [];
+    }
+    const state = window.__NODOMX_HMR__ = window.__NODOMX_HMR__ || {};
+    const changedFiles = Array.isArray(state.changedFiles)
+        ? state.changedFiles.slice()
+        : [];
+    state.changedFiles = [];
+    return changedFiles;
 }

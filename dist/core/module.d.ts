@@ -4,6 +4,11 @@ import { EModuleState, RenderedDom } from "./types";
 import { EventFactory } from "./eventfactory";
 import { DomManager } from "./dommanager";
 import { ModelManager } from "./modelmanager";
+type ModuleHotSnapshot = {
+    children: ModuleHotSnapshot[];
+    hotId: string;
+    state: Record<string, unknown>;
+};
 /**
  * 模块类
  *
@@ -235,6 +240,16 @@ export declare class Module {
      */
     captureSetupState(): Record<string, unknown>;
     /**
+     * capture recursive hot snapshot
+     * @returns hot snapshot tree
+     */
+    captureHotSnapshot(): ModuleHotSnapshot;
+    /**
+     * apply recursive hot snapshot
+     * @param snapshot - hot snapshot tree
+     */
+    applyHotSnapshot(snapshot: ModuleHotSnapshot): void;
+    /**
      * 获取父模块
      * @returns     父模块
      */
@@ -364,4 +379,15 @@ export declare class Module {
      * restore setup state from hot payload if present
      */
     private restoreSetupState;
+    /**
+     * apply setup-level state snapshot
+     * @param hotState - state snapshot
+     */
+    private applySetupState;
+    /**
+     * get stable hot identity
+     * @returns hot id
+     */
+    getHotId(): string;
 }
+export {};

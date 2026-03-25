@@ -60,6 +60,7 @@ assert.match(code, /const __nd_component__ =/);
 assert.match(code, /data-nd-scope=\\"nd-/);
 assert.match(code, /\[data-nd-scope=\\"nd-[a-f0-9]+\\"\] \.counter/);
 assert.match(code, /useState/);
+assert.match(code, /__nd_module_factory__\.addClass\(CounterComponent\)/);
 
 const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nd-compiler-"));
 const inputFile = path.join(tmpDir, "Counter.nd");
@@ -79,6 +80,7 @@ const result = await compileFile(inputFile, {
 assert.equal(result.outputFile, outFile);
 const outputCode = await fs.readFile(outFile, "utf8");
 assert.match(outputCode, /export default CounterComponent/);
+assert.match(outputCode, /__nd_module_factory__\.addClass\(CounterComponent\)/);
 
 const compiledFromDir = await compilePath(tmpDir, {
     importSource: "nodom3"

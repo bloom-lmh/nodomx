@@ -334,9 +334,6 @@ class ModuleFactory {
     static addClass(clazz, alias) {
         //转换成小写
         const name = clazz.name.toLowerCase();
-        if (this.classes.has(name)) {
-            return;
-        }
         this.classes.set(name, clazz);
         //添加别名
         if (alias) {
@@ -787,6 +784,17 @@ class Renderer {
             }
             //渲染后移除
             this.waitList.shift();
+        }
+    }
+    /**
+     * flush pending render queue synchronously
+     * @param maxRounds - max render rounds
+     */
+    static flush(maxRounds = 20) {
+        let rounds = 0;
+        while (this.waitList.length > 0 && rounds < maxRounds) {
+            this.render();
+            rounds++;
         }
     }
     /**
@@ -1748,12 +1756,22 @@ class Nodom {
      * @param clazz -       模块类
      * @param selector -    根模块容器选择器
      * @param hotState -    热更新状态快照
+     * @param changedFiles - 触发热更新的文件列表
      */
-    static hotReload(clazz, selector, hotState) {
-        if (hotState && clazz && typeof clazz === 'function') {
+    static hotReload(clazz, selector, hotState, changedFiles) {
+        if (this.reloadChangedModules(this.normalizeChangedFiles(changedFiles))) {
+            return;
+        }
+        const hotSnapshot = isModuleHotSnapshot(hotState) ? hotState : undefined;
+        if (!hotSnapshot && hotState && clazz && typeof clazz === 'function') {
             clazz['__nodomHotState'] = hotState;
         }
-        this.mountApp(clazz, selector, true);
+        const module = this.mountApp(clazz, selector, true);
+        Renderer.flush();
+        if (hotSnapshot && module && typeof module.applyHotSnapshot === 'function') {
+            module.applyHotSnapshot(hotSnapshot);
+            Renderer.flush();
+        }
     }
     /**
      * 捕获主模块热更新状态
@@ -1761,10 +1779,10 @@ class Nodom {
      */
     static captureHotState() {
         const main = ModuleFactory.getMain();
-        if (!main || typeof main.captureSetupState !== 'function') {
+        if (!main || typeof main.captureHotSnapshot !== 'function') {
             return {};
         }
-        return main.captureSetupState();
+        return main.captureHotSnapshot();
     }
     /**
      * 启用debug模式
@@ -1931,7 +1949,119 @@ class Nodom {
             ModuleFactory.setMain(module);
             module.active();
         }
+        return module;
     }
+    /**
+     * try to refresh only changed nd component subtrees
+     * @param changedFiles - changed nd files
+     * @returns true if handled by subtree hot swap
+     */
+    static reloadChangedModules(changedFiles) {
+        if (changedFiles.length === 0) {
+            return false;
+        }
+        const main = ModuleFactory.getMain();
+        if (!main || typeof main.getHotId !== 'function') {
+            return false;
+        }
+        const hotIds = new Set(changedFiles);
+        const mainHotId = normalizeHotId$1(main.getHotId());
+        if (mainHotId && hotIds.has(mainHotId)) {
+            return false;
+        }
+        const targets = this.collectHotReloadTargets(main, hotIds);
+        if (targets.length === 0) {
+            return false;
+        }
+        const parents = new Set();
+        for (const target of targets) {
+            target.parent.children = target.parent.children.filter((child) => child !== target.module);
+            target.parent.objectManager.removeDomParam(target.srcDomKey, '$savedModule');
+            parents.add(target.parent);
+        }
+        for (const parent of parents) {
+            Renderer.add(parent);
+        }
+        Renderer.flush();
+        let restored = false;
+        for (const target of targets) {
+            const nextModule = target.parent.children.find((child) => {
+                var _a;
+                return ((_a = child === null || child === void 0 ? void 0 : child.srcDom) === null || _a === void 0 ? void 0 : _a.key) === target.srcDomKey
+                    && typeof child.getHotId === 'function'
+                    && normalizeHotId$1(child.getHotId()) === target.hotId;
+            });
+            if (nextModule && typeof nextModule.applyHotSnapshot === 'function') {
+                nextModule.applyHotSnapshot(target.snapshot);
+                restored = true;
+            }
+        }
+        if (restored) {
+            Renderer.flush();
+        }
+        return true;
+    }
+    /**
+     * collect highest matched component targets for subtree hot replacement
+     * @param module - current module
+     * @param hotIds - changed hot ids
+     * @returns reload targets
+     */
+    static collectHotReloadTargets(module, hotIds) {
+        var _a, _b;
+        const hotId = normalizeHotId$1((_a = module.getHotId) === null || _a === void 0 ? void 0 : _a.call(module));
+        if (hotId && hotIds.has(hotId)) {
+            const parent = (_b = module.getParent) === null || _b === void 0 ? void 0 : _b.call(module);
+            if (parent && module.srcDom && typeof module.captureHotSnapshot === 'function') {
+                return [{
+                        hotId,
+                        module,
+                        parent,
+                        snapshot: module.captureHotSnapshot(),
+                        srcDomKey: module.srcDom.key
+                    }];
+            }
+            return [];
+        }
+        const targets = [];
+        for (const child of module.children || []) {
+            targets.push(...this.collectHotReloadTargets(child, hotIds));
+        }
+        return targets;
+    }
+    /**
+     * normalize changed files from the dev server payload
+     * only pure .nd updates can use subtree hmr safely
+     * @param changedFiles - raw changed files
+     * @returns normalized nd file ids
+     */
+    static normalizeChangedFiles(changedFiles) {
+        if (!Array.isArray(changedFiles) || changedFiles.length === 0) {
+            return [];
+        }
+        const normalized = [];
+        for (const file of changedFiles) {
+            const hotId = normalizeHotId$1(file);
+            if (!hotId) {
+                continue;
+            }
+            if (!/\.nd($|\?)/i.test(hotId)) {
+                return [];
+            }
+            normalized.push(hotId.replace(/\?.*$/, ''));
+        }
+        return normalized;
+    }
+}
+function normalizeHotId$1(hotId) {
+    return typeof hotId === 'string' ? hotId.replace(/\\/g, '/') : '';
+}
+function isModuleHotSnapshot(value) {
+    return !!value
+        && typeof value === 'object'
+        && typeof value.hotId === 'string'
+        && Array.isArray(value.children)
+        && typeof value.state === 'object';
 }
 
 /**
@@ -5408,6 +5538,40 @@ class Module {
         return snapshot;
     }
     /**
+     * capture recursive hot snapshot
+     * @returns hot snapshot tree
+     */
+    captureHotSnapshot() {
+        return {
+            children: this.children.map(item => item.captureHotSnapshot()),
+            hotId: this.getHotId(),
+            state: this.captureSetupState()
+        };
+    }
+    /**
+     * apply recursive hot snapshot
+     * @param snapshot - hot snapshot tree
+     */
+    applyHotSnapshot(snapshot) {
+        if (!snapshot || snapshot.hotId !== this.getHotId()) {
+            return;
+        }
+        this.applySetupState(snapshot.state);
+        const childQueues = new Map();
+        for (const childSnapshot of snapshot.children || []) {
+            const arr = childQueues.get(childSnapshot.hotId) || [];
+            arr.push(childSnapshot);
+            childQueues.set(childSnapshot.hotId, arr);
+        }
+        for (const child of this.children) {
+            const queue = childQueues.get(child.getHotId());
+            const nextSnapshot = queue === null || queue === void 0 ? void 0 : queue.shift();
+            if (nextSnapshot) {
+                child.applyHotSnapshot(nextSnapshot);
+            }
+        }
+    }
+    /**
      * 获取父模块
      * @returns     父模块
      */
@@ -5751,6 +5915,17 @@ class Module {
         if (!hotState || !this.setupState) {
             return;
         }
+        this.applySetupState(hotState);
+        delete ctor['__nodomHotState'];
+    }
+    /**
+     * apply setup-level state snapshot
+     * @param hotState - state snapshot
+     */
+    applySetupState(hotState) {
+        if (!hotState || !this.setupState) {
+            return;
+        }
         for (const key of Object.keys(hotState)) {
             if (!Object.prototype.hasOwnProperty.call(this.setupState, key)) {
                 continue;
@@ -5767,7 +5942,16 @@ class Module {
                 this.model[key] = nextValue;
             }
         }
-        delete ctor['__nodomHotState'];
+    }
+    /**
+     * get stable hot identity
+     * @returns hot id
+     */
+    getHotId() {
+        const hotId = this['__ndFile']
+            || this.constructor['__ndFile']
+            || this.constructor.name;
+        return normalizeHotId(hotId);
     }
 }
 function syncReactiveState(target, nextValue) {
@@ -5780,6 +5964,9 @@ function syncReactiveState(target, nextValue) {
     for (const key of Reflect.ownKeys(nextValue)) {
         Reflect.set(rawTarget, key, cloneStateValue(Reflect.get(nextValue, key)));
     }
+}
+function normalizeHotId(hotId) {
+    return typeof hotId === 'string' ? hotId.replace(/\\/g, '/') : '';
 }
 
 /**

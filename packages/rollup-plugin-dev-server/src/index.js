@@ -258,10 +258,16 @@ const state = window.__NODOMX_HMR__ = window.__NODOMX_HMR__ || {
     pending: Promise.resolve()
 };
 
-source.addEventListener("update", async () => {
+source.addEventListener("update", async (event) => {
     if (!state.entryUrl) {
         window.location.reload();
         return;
+    }
+    try {
+        const payload = JSON.parse(event.data || "{}");
+        state.changedFiles = Array.isArray(payload.changed) ? payload.changed : [];
+    } catch {
+        state.changedFiles = [];
     }
     const entryUrl = withTimestamp(state.entryUrl);
     state.pending = state.pending

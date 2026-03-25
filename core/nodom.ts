@@ -2,6 +2,7 @@ import { DirectiveManager } from "./directivemanager";
 import { NError } from "./error";
 import { NodomMessage_en } from "./locales/msg_en";
 import { NodomMessage_zh } from "./locales/msg_zh";
+import { Module } from "./module";
 import { ModuleFactory } from "./modulefactory";
 import { Renderer } from "./renderer";
 import { RequestManager } from "./requestmanager";
@@ -14,6 +15,20 @@ import { Util } from "./util";
  * nodom提示消息
  */
 export let NodomMessage = NodomMessage_zh;
+
+type ModuleHotSnapshot = {
+    children: ModuleHotSnapshot[];
+    hotId: string;
+    state: Record<string, unknown>;
+};
+
+type HotReloadTarget = {
+    hotId: string;
+    module: Module;
+    parent: Module;
+    snapshot: ModuleHotSnapshot;
+    srcDomKey: number|string;
+};
 
 /**
  * Nodom接口暴露类
@@ -47,12 +62,22 @@ export class Nodom{
      * @param clazz -       模块类
      * @param selector -    根模块容器选择器
      * @param hotState -    热更新状态快照
+     * @param changedFiles - 触发热更新的文件列表
      */
-    public static hotReload(clazz:unknown,selector?:string,hotState?:Record<string, unknown>){
-        if(hotState && clazz && typeof clazz === 'function'){
+    public static hotReload(clazz:unknown,selector?:string,hotState?:Record<string, unknown>,changedFiles?:string[]){
+        if(this.reloadChangedModules(this.normalizeChangedFiles(changedFiles))){
+            return;
+        }
+        const hotSnapshot = isModuleHotSnapshot(hotState) ? hotState : undefined;
+        if(!hotSnapshot && hotState && clazz && typeof clazz === 'function'){
             (<Record<string, unknown>><unknown>clazz)['__nodomHotState'] = hotState;
         }
-        this.mountApp(clazz,selector,true);
+        const module = this.mountApp(clazz,selector,true);
+        Renderer.flush();
+        if(hotSnapshot && module && typeof module.applyHotSnapshot === 'function'){
+            module.applyHotSnapshot(hotSnapshot);
+            Renderer.flush();
+        }
     }
 
     /**
@@ -61,10 +86,10 @@ export class Nodom{
      */
     public static captureHotState():Record<string, unknown>{
         const main = ModuleFactory.getMain();
-        if(!main || typeof main.captureSetupState !== 'function'){
+        if(!main || typeof main.captureHotSnapshot !== 'function'){
             return {};
         }
-        return main.captureSetupState();
+        return main.captureHotSnapshot();
     }
 
     /**
@@ -238,5 +263,123 @@ export class Nodom{
             ModuleFactory.setMain(module);
             module.active();
         }
+        return module;
     }
+
+    /**
+     * try to refresh only changed nd component subtrees
+     * @param changedFiles - changed nd files
+     * @returns true if handled by subtree hot swap
+     */
+    private static reloadChangedModules(changedFiles:string[]): boolean {
+        if(changedFiles.length === 0){
+            return false;
+        }
+        const main = ModuleFactory.getMain();
+        if(!main || typeof main.getHotId !== 'function'){
+            return false;
+        }
+        const hotIds = new Set(changedFiles);
+        const mainHotId = normalizeHotId(main.getHotId());
+        if(mainHotId && hotIds.has(mainHotId)){
+            return false;
+        }
+        const targets = this.collectHotReloadTargets(main, hotIds);
+        if(targets.length === 0){
+            return false;
+        }
+
+        const parents = new Set<Module>();
+        for(const target of targets){
+            target.parent.children = target.parent.children.filter((child) => child !== target.module);
+            target.parent.objectManager.removeDomParam(target.srcDomKey,'$savedModule');
+            parents.add(target.parent);
+        }
+        for(const parent of parents){
+            Renderer.add(parent);
+        }
+        Renderer.flush();
+
+        let restored = false;
+        for(const target of targets){
+            const nextModule = target.parent.children.find((child) =>
+                child?.srcDom?.key === target.srcDomKey
+                && typeof child.getHotId === 'function'
+                && normalizeHotId(child.getHotId()) === target.hotId
+            );
+            if(nextModule && typeof nextModule.applyHotSnapshot === 'function'){
+                nextModule.applyHotSnapshot(target.snapshot);
+                restored = true;
+            }
+        }
+        if(restored){
+            Renderer.flush();
+        }
+        return true;
+    }
+
+    /**
+     * collect highest matched component targets for subtree hot replacement
+     * @param module - current module
+     * @param hotIds - changed hot ids
+     * @returns reload targets
+     */
+    private static collectHotReloadTargets(module:Module,hotIds:Set<string>): HotReloadTarget[] {
+        const hotId = normalizeHotId(module.getHotId?.());
+        if(hotId && hotIds.has(hotId)){
+            const parent = module.getParent?.();
+            if(parent && module.srcDom && typeof module.captureHotSnapshot === 'function'){
+                return [{
+                    hotId,
+                    module,
+                    parent,
+                    snapshot: module.captureHotSnapshot(),
+                    srcDomKey: module.srcDom.key
+                }];
+            }
+            return [];
+        }
+
+        const targets:HotReloadTarget[] = [];
+        for(const child of module.children || []){
+            targets.push(...this.collectHotReloadTargets(child, hotIds));
+        }
+        return targets;
+    }
+
+    /**
+     * normalize changed files from the dev server payload
+     * only pure .nd updates can use subtree hmr safely
+     * @param changedFiles - raw changed files
+     * @returns normalized nd file ids
+     */
+    private static normalizeChangedFiles(changedFiles?:string[]): string[] {
+        if(!Array.isArray(changedFiles) || changedFiles.length === 0){
+            return [];
+        }
+        const normalized:string[] = [];
+        for(const file of changedFiles){
+            const hotId = normalizeHotId(file);
+            if(!hotId){
+                continue;
+            }
+            if(!/\.nd($|\?)/i.test(hotId)){
+                return [];
+            }
+            normalized.push(hotId.replace(/\?.*$/,''));
+        }
+        return normalized;
+    }
+}
+
+function normalizeHotId(hotId?:string): string {
+    return typeof hotId === 'string' ? hotId.replace(/\\/g,'/') : '';
+}
+
+function isModuleHotSnapshot(value:unknown): value is ModuleHotSnapshot {
+    return !!value
+        && typeof value === 'object'
+        && typeof (<Record<string, unknown>>value).hotId === 'string'
+        && Array.isArray((<Record<string, unknown>>value).children)
+        && typeof (<Record<string, unknown>>value).state === 'object';
 }

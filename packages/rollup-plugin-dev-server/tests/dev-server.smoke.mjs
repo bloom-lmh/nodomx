@@ -44,7 +44,11 @@ const client = await request(`${info.url}/@nodomx/dev-client.js`);
 assert.match(client.body, /EventSource/);
 assert.match(client.body, /__NODOMX_HMR__/);
 
-global.window = { __NODOMX_HMR__: {} };
+global.window = {
+    __NODOMX_HMR__: {
+        changedFiles: ["C:/demo/App.nd"]
+    }
+};
 let hotReloaded = null;
 const nodom = {
     captureHotState() {
@@ -52,8 +56,8 @@ const nodom = {
             count: 2
         };
     },
-    hotReload(clazz, selector, hotState) {
-        hotReloaded = { clazz, selector, hotState };
+    hotReload(clazz, selector, hotState, changedFiles) {
+        hotReloaded = { changedFiles, clazz, selector, hotState };
     }
 };
 
@@ -68,6 +72,7 @@ await bootstrapNodomApp({
 assert.equal(global.window.__NODOMX_HMR__.entryUrl, "/dist/main.js");
 assert.deepEqual(hotReloaded, {
     clazz: DemoApp,
+    changedFiles: ["C:/demo/App.nd"],
     hotState: {
         count: 2
     },

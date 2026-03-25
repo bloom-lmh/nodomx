@@ -62,7 +62,7 @@ export function compileNd(source, options = {}) {
     const scriptCode = buildScript(descriptor.script?.content || "");
 
     return [
-        `import { Module } from ${JSON.stringify(importSource)};`,
+        `import { Module, ModuleFactory as __nd_module_factory__ } from ${JSON.stringify(importSource)};`,
         "",
         scriptCode,
         "",
@@ -72,6 +72,7 @@ export function compileNd(source, options = {}) {
         `    return ${JSON.stringify(template)};`,
         "};",
         `${className}.prototype.__ndFile = ${JSON.stringify(filename)};`,
+        `__nd_module_factory__.addClass(${className});`,
         "",
         `export default ${className};`,
         `export { ${className} };`

@@ -1,13 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { publishablePackages, repoRoot } from "./shared.mjs";
+import { officialNpmRegistry, publishablePackages, repoRoot } from "./shared.mjs";
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const tag = readFlag("--tag");
 const otp = readFlag("--otp");
+const registry = readFlag("--registry") || officialNpmRegistry;
 
 for (const pkg of publishablePackages) {
-    const publishArgs = ["publish", "--workspace", pkg.name, "--access", "public"];
+    const publishArgs = ["publish", "--workspace", pkg.name, "--access", "public", "--registry", registry];
     if (dryRun) {
         publishArgs.push("--dry-run");
     }

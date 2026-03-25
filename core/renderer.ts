@@ -84,6 +84,18 @@ export class Renderer {
     }
 
     /**
+     * flush pending render queue synchronously
+     * @param maxRounds - max render rounds
+     */
+    public static flush(maxRounds:number = 20){
+        let rounds = 0;
+        while(this.waitList.length>0 && rounds < maxRounds){
+            this.render();
+            rounds++;
+        }
+    }
+
+    /**
      * 渲染dom
      * @remarks
      * 此过程将VirtualDom转换为RenderedDom。

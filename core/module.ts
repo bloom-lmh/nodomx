@@ -20,6 +20,12 @@ import {
     withCurrentModule
 } from "./composition";
 
+type ModuleHotSnapshot = {
+    children: ModuleHotSnapshot[];
+    hotId: string;
+    state: Record<string, unknown>;
+};
+
 /**
  * 模块类
  * 
@@ -486,6 +492,42 @@ export class Module {
     }
 
     /**
+     * capture recursive hot snapshot
+     * @returns hot snapshot tree
+     */
+    public captureHotSnapshot(): ModuleHotSnapshot {
+        return {
+            children: this.children.map(item => item.captureHotSnapshot()),
+            hotId: this.getHotId(),
+            state: this.captureSetupState()
+        };
+    }
+
+    /**
+     * apply recursive hot snapshot
+     * @param snapshot - hot snapshot tree
+     */
+    public applyHotSnapshot(snapshot: ModuleHotSnapshot): void {
+        if(!snapshot || snapshot.hotId !== this.getHotId()){
+            return;
+        }
+        this.applySetupState(snapshot.state);
+        const childQueues = new Map<string, ModuleHotSnapshot[]>();
+        for(const childSnapshot of snapshot.children || []){
+            const arr = childQueues.get(childSnapshot.hotId) || [];
+            arr.push(childSnapshot);
+            childQueues.set(childSnapshot.hotId, arr);
+        }
+        for(const child of this.children){
+            const queue = childQueues.get(child.getHotId());
+            const nextSnapshot = queue?.shift();
+            if(nextSnapshot){
+                child.applyHotSnapshot(nextSnapshot);
+            }
+        }
+    }
+
+    /**
      * 获取父模块
      * @returns     父模块   
      */
@@ -838,6 +880,18 @@ export class Module {
         if(!hotState || !this.setupState){
             return;
         }
+        this.applySetupState(hotState);
+        delete ctor['__nodomHotState'];
+    }
+
+    /**
+     * apply setup-level state snapshot
+     * @param hotState - state snapshot
+     */
+    private applySetupState(hotState?: Record<string, unknown>): void {
+        if(!hotState || !this.setupState){
+            return;
+        }
         for(const key of Object.keys(hotState)){
             if(!Object.prototype.hasOwnProperty.call(this.setupState, key)){
                 continue;
@@ -852,7 +906,17 @@ export class Module {
                 (<Record<string, unknown>><unknown>this.model)[key] = nextValue;
             }
         }
-        delete ctor['__nodomHotState'];
+    }
+
+    /**
+     * get stable hot identity
+     * @returns hot id
+     */
+    public getHotId(): string {
+        const hotId = (<Record<string, unknown>><unknown>this)['__ndFile'] as string
+            || (<Record<string, unknown>><unknown>this.constructor)['__ndFile'] as string
+            || this.constructor.name;
+        return normalizeHotId(hotId);
     }
 }
 
@@ -866,4 +930,8 @@ function syncReactiveState(target: object, nextValue: object): void {
     for(const key of Reflect.ownKeys(nextValue)){
         Reflect.set(rawTarget, key, cloneStateValue(Reflect.get(nextValue, key)));
     }
+}
+
+function normalizeHotId(hotId?: string): string {
+    return typeof hotId === 'string' ? hotId.replace(/\\/g, '/') : '';
 }
