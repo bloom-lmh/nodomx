@@ -7,15 +7,22 @@ export async function bootstrapNodomApp(options) {
     if (typeof load !== "function") {
         throw new Error("bootstrapNodomApp requires a `load` function.");
     }
-    if (!nodom || typeof nodom.remount !== "function") {
-        throw new Error("bootstrapNodomApp requires a `nodom` object with a remount method.");
+    if (!nodom || (typeof nodom.hotReload !== "function" && typeof nodom.remount !== "function")) {
+        throw new Error("bootstrapNodomApp requires a `nodom` object with a hotReload or remount method.");
     }
 
     registerEntry(entryUrl);
 
     const module = await load();
     const App = resolveModuleClass(module);
-    nodom.remount(App, selector);
+    const hotState = typeof nodom.captureHotState === "function"
+        ? nodom.captureHotState()
+        : undefined;
+    if (typeof nodom.hotReload === "function") {
+        nodom.hotReload(App, selector, hotState);
+    } else {
+        nodom.remount(App, selector);
+    }
     return App;
 }
 

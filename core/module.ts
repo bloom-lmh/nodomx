@@ -11,7 +11,14 @@ import { EventFactory } from "./eventfactory";
 import { DomManager } from "./dommanager";
 import { ModelManager } from "./modelmanager";
 import { Watcher } from "./wacher";
-import { withCurrentModule } from "./composition";
+import {
+    cloneStateValue,
+    isComputed,
+    isReactive,
+    isRef,
+    toRaw,
+    withCurrentModule
+} from "./composition";
 
 /**
  * 模块类
@@ -159,6 +166,11 @@ export class Module {
      * cleanup callbacks created by composition api
      */
     private compositionCleanups:Array<() => void> = [];
+
+    /**
+     * bindings returned from setup
+     */
+    private setupState:Record<string, unknown>;
 
     /**
      * 构造器
@@ -447,6 +459,31 @@ export class Module {
         //从modulefactory移除
         ModuleFactory.remove(this.id);
     } 
+
+    /**
+     * capture setup state for hot reload
+     * @returns serializable snapshot
+     */
+    public captureSetupState(): Record<string, unknown> {
+        const snapshot: Record<string, unknown> = {};
+        if(!this.setupState){
+            return snapshot;
+        }
+        for(const key of Object.keys(this.setupState)){
+            const binding = this.setupState[key];
+            if(typeof binding === 'function' || isComputed(binding)){
+                continue;
+            }
+            if(isRef(binding)){
+                snapshot[key] = cloneStateValue(binding.value);
+            }else if(isReactive(binding)){
+                snapshot[key] = cloneStateValue(toRaw(binding));
+            }else{
+                snapshot[key] = cloneStateValue(binding);
+            }
+        }
+        return snapshot;
+    }
 
     /**
      * 获取父模块
@@ -768,6 +805,7 @@ export class Module {
         if(!result || typeof result !== 'object'){
             return;
         }
+        this.setupState = result;
         for(const key of Object.keys(result)){
             const value = result[key];
             if(typeof value === 'function'){
@@ -776,6 +814,7 @@ export class Module {
                 (<Record<string, unknown>><unknown>this.model)[key] = value;
             }
         }
+        this.restoreSetupState();
     }
 
     /**
@@ -788,5 +827,43 @@ export class Module {
         for(const cleanup of this.compositionCleanups.splice(0)){
             cleanup();
         }
+    }
+
+    /**
+     * restore setup state from hot payload if present
+     */
+    private restoreSetupState(): void {
+        const ctor = <Record<string, unknown>><unknown>this.constructor;
+        const hotState = <Record<string, unknown>>ctor['__nodomHotState'];
+        if(!hotState || !this.setupState){
+            return;
+        }
+        for(const key of Object.keys(hotState)){
+            if(!Object.prototype.hasOwnProperty.call(this.setupState, key)){
+                continue;
+            }
+            const binding = this.setupState[key];
+            const nextValue = cloneStateValue(hotState[key]);
+            if(isRef(binding)){
+                binding.value = nextValue;
+            }else if(isReactive(binding) && nextValue && typeof nextValue === 'object'){
+                syncReactiveState(binding, nextValue);
+            }else if(!isComputed(binding) && typeof binding !== 'function'){
+                (<Record<string, unknown>><unknown>this.model)[key] = nextValue;
+            }
+        }
+        delete ctor['__nodomHotState'];
+    }
+}
+
+function syncReactiveState(target: object, nextValue: object): void {
+    const rawTarget = <object><unknown>toRaw(target);
+    for(const key of Reflect.ownKeys(rawTarget)){
+        if(!Object.prototype.hasOwnProperty.call(nextValue, key)){
+            Reflect.deleteProperty(rawTarget, key);
+        }
+    }
+    for(const key of Reflect.ownKeys(nextValue)){
+        Reflect.set(rawTarget, key, cloneStateValue(Reflect.get(nextValue, key)));
     }
 }

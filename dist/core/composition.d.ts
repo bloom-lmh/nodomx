@@ -41,6 +41,8 @@ export declare function removeReactiveOwner(value: unknown, owner: BindingOwner)
 export declare function withCurrentModule<T>(module: Module, handler: () => T): T;
 export declare function useModule(): Module;
 export declare function useModel(): object;
+export declare function toRaw<T>(value: T): T;
+export declare function cloneStateValue<T>(value: T): T;
 export declare const ref: typeof useRef;
 export declare const computed: typeof useComputed;
 export declare const watch: typeof useWatch;

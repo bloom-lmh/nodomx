@@ -2468,6 +2468,31 @@ npm run dev
 
 This starts Rollup watch mode and serves the app on `http://127.0.0.1:3000`.
 When source files change, the dev server now hot-imports the rebuilt entry and remounts the app root instead of reloading the entire page.
+Top-level `setup()` state is also restored during hot remounts for `useState` and `useReactive` bindings.
+
+### Release workflow
+
+The npm-facing packages are:
+
+- `@nodomx/nd-compiler`
+- `@nodomx/rollup-plugin-nd`
+- `@nodomx/rollup-plugin-dev-server`
+- `create-nodomx`
+
+Useful release commands from the repository root:
+
+```bash
+npm run release:version -- patch
+npm run release:changelog -- 0.1.0 --since <git-ref>
+npm run release:check
+npm run release:publish -- --dry-run
+```
+
+Notes:
+
+- `release:version` keeps the publishable package versions aligned
+- `release:check` runs build, test and `npm pack` validation for every publishable package
+- `release:publish` publishes in dependency order, or simulates that flow with `--dry-run`
 
 ### Workspace packages
 

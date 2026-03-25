@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageDir = path.resolve(__dirname, "..");
 const templateDir = path.join(packageDir, "template", "basic");
+const ownPackageJson = JSON.parse(await fs.readFile(path.join(packageDir, "package.json"), "utf8"));
 
 export async function createProject(targetDir, options = {}) {
     const targetPath = path.resolve(targetDir);
@@ -13,7 +14,7 @@ export async function createProject(targetDir, options = {}) {
     const packageMode = options.packageMode || "registry";
     const install = options.install === true;
     const force = options.force === true;
-    const packageSpecs = resolvePackageSpecs(packageMode, options.repoRoot);
+    const packageSpecs = resolvePackageSpecs(packageMode, options.repoRoot, options.registryVersion || ownPackageJson.version);
 
     if (!projectName || projectName === "." || projectName === path.sep) {
         throw new Error("Please provide a project directory name.");
@@ -121,7 +122,7 @@ async function ensureEmptyDirectory(targetPath, force) {
     }
 }
 
-function resolvePackageSpecs(mode, repoRootOption) {
+function resolvePackageSpecs(mode, repoRootOption, registryVersion) {
     if (mode === "local") {
         const repoRoot = repoRootOption ? path.resolve(repoRootOption) : path.resolve(packageDir, "..", "..");
         return {
@@ -132,10 +133,11 @@ function resolvePackageSpecs(mode, repoRootOption) {
         };
     }
 
+    const versionRange = `^${registryVersion}`;
     return {
-        devServer: "^0.1.0",
-        ndCompiler: "^0.1.0",
-        ndPlugin: "^0.1.0",
+        devServer: versionRange,
+        ndCompiler: versionRange,
+        ndPlugin: versionRange,
         nodom: "^0.2.3"
     };
 }

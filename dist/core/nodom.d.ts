@@ -49,7 +49,10 @@ export declare let NodomMessage: {
         notremove: string;
         notremove1: string;
         /**
-         * 启用debug模式
+         * 重新挂载应用并恢复热更新状态
+         * @param clazz -       模块类
+         * @param selector -    根模块容器选择器
+         * @param hotState -    热更新状态快照
          */
         namedinvalid: string;
         initial: string;
@@ -87,6 +90,18 @@ export declare class Nodom {
      * @param selector -  根模块容器选择器
      */
     static remount(clazz: unknown, selector?: string): void;
+    /**
+     * 重新挂载应用并恢复热更新状态
+     * @param clazz -       模块类
+     * @param selector -    根模块容器选择器
+     * @param hotState -    热更新状态快照
+     */
+    static hotReload(clazz: unknown, selector?: string, hotState?: Record<string, unknown>): void;
+    /**
+     * 捕获主模块热更新状态
+     * @returns 热更新状态
+     */
+    static captureHotState(): Record<string, unknown>;
     /**
      * 启用debug模式
      */

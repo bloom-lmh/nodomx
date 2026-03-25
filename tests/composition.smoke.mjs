@@ -118,6 +118,59 @@ assert.ok(effectValues.includes("nodomx:1:0"));
 assert.ok(effectValues.includes("nodomx:2:1"));
 assert.ok(effectValues.includes("composition:2:1"));
 
+const hotState = moduleInstance.captureSetupState();
+assert.deepEqual(hotState, {
+    count: 2,
+    profile: {
+        name: "composition",
+        visits: 1
+    }
+});
+
 moduleInstance.destroy();
+
+class CompositionHotModule extends Module {
+    template() {
+        return `
+            <div id="composition-smoke">
+                <p id="count">{{count}}</p>
+                <p id="double">{{doubleCount}}</p>
+                <p id="name">{{profile.name}}</p>
+                <p id="visits">{{profile.visits}}</p>
+                <p id="summary">{{summary}}</p>
+            </div>
+        `;
+    }
+
+    setup() {
+        const count = useState(99);
+        const profile = useReactive({
+            name: "fresh",
+            visits: 9
+        });
+        const doubleCount = useComputed(() => count.value * 2);
+        const summary = useComputed(() => `${profile.name}:${count.value}:${profile.visits}`);
+
+        return {
+            count,
+            doubleCount,
+            profile,
+            summary
+        };
+    }
+}
+
+CompositionHotModule.__nodomHotState = hotState;
+const hotModuleInstance = ModuleFactory.get(CompositionHotModule);
+hotModuleInstance.active();
+Renderer.render();
+
+assert.equal(text("#count"), "2");
+assert.equal(text("#double"), "4");
+assert.equal(text("#name"), "composition");
+assert.equal(text("#visits"), "1");
+assert.equal(text("#summary"), "composition:2:1");
+
+hotModuleInstance.destroy();
 
 console.log("composition smoke test passed");

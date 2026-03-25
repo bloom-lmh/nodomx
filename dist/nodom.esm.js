@@ -1744,6 +1744,29 @@ class Nodom {
         this.mountApp(clazz, selector, true);
     }
     /**
+     * 重新挂载应用并恢复热更新状态
+     * @param clazz -       模块类
+     * @param selector -    根模块容器选择器
+     * @param hotState -    热更新状态快照
+     */
+    static hotReload(clazz, selector, hotState) {
+        if (hotState && clazz && typeof clazz === 'function') {
+            clazz['__nodomHotState'] = hotState;
+        }
+        this.mountApp(clazz, selector, true);
+    }
+    /**
+     * 捕获主模块热更新状态
+     * @returns 热更新状态
+     */
+    static captureHotState() {
+        const main = ModuleFactory.getMain();
+        if (!main || typeof main.captureSetupState !== 'function') {
+            return {};
+        }
+        return main.captureSetupState();
+    }
+    /**
      * 启用debug模式
      */
     static debug() {
@@ -4616,6 +4639,42 @@ function useModel() {
     }
     return currentModule.model;
 }
+function toRaw(value) {
+    const meta = getReactiveMeta(value);
+    return meta ? meta.raw : value;
+}
+function cloneStateValue(value) {
+    if (typeof globalThis.structuredClone === "function") {
+        return globalThis.structuredClone(value);
+    }
+    return deepClone(value, new WeakMap());
+}
+function deepClone(value, seen) {
+    if (!isObject(value)) {
+        return value;
+    }
+    const raw = toRaw(value);
+    if (!isObject(raw)) {
+        return raw;
+    }
+    if (seen.has(raw)) {
+        return seen.get(raw);
+    }
+    if (Array.isArray(raw)) {
+        const arr = [];
+        seen.set(raw, arr);
+        for (const item of raw) {
+            arr.push(deepClone(item, seen));
+        }
+        return arr;
+    }
+    const result = {};
+    seen.set(raw, result);
+    for (const key of Reflect.ownKeys(raw)) {
+        result[key] = deepClone(raw[key], seen);
+    }
+    return result;
+}
 const ref = useRef;
 const computed = useComputed;
 const watch = useWatch;
@@ -5323,6 +5382,32 @@ class Module {
         ModuleFactory.remove(this.id);
     }
     /**
+     * capture setup state for hot reload
+     * @returns serializable snapshot
+     */
+    captureSetupState() {
+        const snapshot = {};
+        if (!this.setupState) {
+            return snapshot;
+        }
+        for (const key of Object.keys(this.setupState)) {
+            const binding = this.setupState[key];
+            if (typeof binding === 'function' || isComputed(binding)) {
+                continue;
+            }
+            if (isRef(binding)) {
+                snapshot[key] = cloneStateValue(binding.value);
+            }
+            else if (isReactive(binding)) {
+                snapshot[key] = cloneStateValue(toRaw(binding));
+            }
+            else {
+                snapshot[key] = cloneStateValue(binding);
+            }
+        }
+        return snapshot;
+    }
+    /**
      * 获取父模块
      * @returns     父模块
      */
@@ -5634,6 +5719,7 @@ class Module {
         if (!result || typeof result !== 'object') {
             return;
         }
+        this.setupState = result;
         for (const key of Object.keys(result)) {
             const value = result[key];
             if (typeof value === 'function') {
@@ -5643,6 +5729,7 @@ class Module {
                 this.model[key] = value;
             }
         }
+        this.restoreSetupState();
     }
     /**
      * run and clear composition cleanups
@@ -5654,6 +5741,44 @@ class Module {
         for (const cleanup of this.compositionCleanups.splice(0)) {
             cleanup();
         }
+    }
+    /**
+     * restore setup state from hot payload if present
+     */
+    restoreSetupState() {
+        const ctor = this.constructor;
+        const hotState = ctor['__nodomHotState'];
+        if (!hotState || !this.setupState) {
+            return;
+        }
+        for (const key of Object.keys(hotState)) {
+            if (!Object.prototype.hasOwnProperty.call(this.setupState, key)) {
+                continue;
+            }
+            const binding = this.setupState[key];
+            const nextValue = cloneStateValue(hotState[key]);
+            if (isRef(binding)) {
+                binding.value = nextValue;
+            }
+            else if (isReactive(binding) && nextValue && typeof nextValue === 'object') {
+                syncReactiveState(binding, nextValue);
+            }
+            else if (!isComputed(binding) && typeof binding !== 'function') {
+                this.model[key] = nextValue;
+            }
+        }
+        delete ctor['__nodomHotState'];
+    }
+}
+function syncReactiveState(target, nextValue) {
+    const rawTarget = toRaw(target);
+    for (const key of Reflect.ownKeys(rawTarget)) {
+        if (!Object.prototype.hasOwnProperty.call(nextValue, key)) {
+            Reflect.deleteProperty(rawTarget, key);
+        }
+    }
+    for (const key of Reflect.ownKeys(nextValue)) {
+        Reflect.set(rawTarget, key, cloneStateValue(Reflect.get(nextValue, key)));
     }
 }
 
@@ -6811,5 +6936,5 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
     }, 5);
 }());
 
-export { Compiler, CssManager, DefineElement, DefineElementManager, DiffTool, Directive, DirectiveManager, DirectiveType, EModuleState, EventFactory, Expression, GlobalCache, Model, ModelManager, Module, ModuleFactory, NCache, NError, NEvent, Nodom, NodomMessage, NodomMessage_en, NodomMessage_zh, Renderer, Route, Router, Scheduler, Util, VirtualDom, bindStateHost, computed, isComputed, isReactive, isRef, reactive, ref, removeReactiveOwner, shouldSkipModelProxy, toValue, track, trigger, unbindStateHost, unref, unwrapState, useComputed, useModel, useModule, useReactive, useRef, useState, useWatch, useWatchEffect, watch, watchEffect, withCurrentModule };
+export { Compiler, CssManager, DefineElement, DefineElementManager, DiffTool, Directive, DirectiveManager, DirectiveType, EModuleState, EventFactory, Expression, GlobalCache, Model, ModelManager, Module, ModuleFactory, NCache, NError, NEvent, Nodom, NodomMessage, NodomMessage_en, NodomMessage_zh, Renderer, Route, Router, Scheduler, Util, VirtualDom, bindStateHost, cloneStateValue, computed, isComputed, isReactive, isRef, reactive, ref, removeReactiveOwner, shouldSkipModelProxy, toRaw, toValue, track, trigger, unbindStateHost, unref, unwrapState, useComputed, useModel, useModule, useReactive, useRef, useState, useWatch, useWatchEffect, watch, watchEffect, withCurrentModule };
 //# sourceMappingURL=nodom.esm.js.map

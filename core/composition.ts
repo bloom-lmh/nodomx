@@ -618,6 +618,45 @@ export function useModel(): object {
     return currentModule.model;
 }
 
+export function toRaw<T>(value: T): T {
+    const meta = getReactiveMeta(value);
+    return meta ? meta.raw as T : value;
+}
+
+export function cloneStateValue<T>(value: T): T {
+    if (typeof globalThis.structuredClone === "function") {
+        return globalThis.structuredClone(value);
+    }
+    return deepClone(value, new WeakMap()) as T;
+}
+
+function deepClone<T>(value: T, seen: WeakMap<object, unknown>): T {
+    if (!isObject(value)) {
+        return value;
+    }
+    const raw = toRaw(value);
+    if (!isObject(raw)) {
+        return raw as T;
+    }
+    if (seen.has(raw)) {
+        return seen.get(raw) as T;
+    }
+    if (Array.isArray(raw)) {
+        const arr: unknown[] = [];
+        seen.set(raw, arr);
+        for (const item of raw) {
+            arr.push(deepClone(item, seen));
+        }
+        return arr as T;
+    }
+    const result: Record<string | number | symbol, unknown> = {};
+    seen.set(raw, result);
+    for (const key of Reflect.ownKeys(raw)) {
+        result[key] = deepClone((raw as Record<string | number | symbol, unknown>)[key], seen);
+    }
+    return result as T;
+}
+
 export const ref = useRef;
 export const computed = useComputed;
 export const watch = useWatch;

@@ -9,6 +9,7 @@ import { createProject } from "../src/index.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "create-nodomx-"));
 const projectDir = path.join(tmpDir, "demo-app");
+const registryDir = path.join(tmpDir, "registry-app");
 
 await createProject(projectDir, {
     install: true,
@@ -25,6 +26,14 @@ assert.ok(await exists(path.join(projectDir, "public", "index.html")));
 
 run("npm", ["run", "build"], projectDir);
 assert.ok(await exists(path.join(projectDir, "dist", "main.js")));
+
+await createProject(registryDir, {
+    packageMode: "registry"
+});
+const registryPkg = JSON.parse(await fs.readFile(path.join(registryDir, "package.json"), "utf8"));
+assert.equal(registryPkg.devDependencies["@nodomx/rollup-plugin-dev-server"], "^0.1.0");
+assert.equal(registryPkg.devDependencies["@nodomx/rollup-plugin-nd"], "^0.1.0");
+assert.equal(registryPkg.devDependencies["@nodomx/nd-compiler"], "^0.1.0");
 
 console.log("create-nodomx smoke test passed");
 

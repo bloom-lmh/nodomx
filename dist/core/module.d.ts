@@ -135,6 +135,10 @@ export declare class Module {
      */
     private compositionCleanups;
     /**
+     * bindings returned from setup
+     */
+    private setupState;
+    /**
      * 构造器
      * @param id -  模块id
      */
@@ -225,6 +229,11 @@ export declare class Module {
      * 销毁
      */
     destroy(): void;
+    /**
+     * capture setup state for hot reload
+     * @returns serializable snapshot
+     */
+    captureSetupState(): Record<string, unknown>;
     /**
      * 获取父模块
      * @returns     父模块
@@ -351,4 +360,8 @@ export declare class Module {
      * run and clear composition cleanups
      */
     private clearCompositionCleanups;
+    /**
+     * restore setup state from hot payload if present
+     */
+    private restoreSetupState;
 }

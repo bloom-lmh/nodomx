@@ -43,6 +43,31 @@ export class Nodom{
     }
 
     /**
+     * 重新挂载应用并恢复热更新状态
+     * @param clazz -       模块类
+     * @param selector -    根模块容器选择器
+     * @param hotState -    热更新状态快照
+     */
+    public static hotReload(clazz:unknown,selector?:string,hotState?:Record<string, unknown>){
+        if(hotState && clazz && typeof clazz === 'function'){
+            (<Record<string, unknown>><unknown>clazz)['__nodomHotState'] = hotState;
+        }
+        this.mountApp(clazz,selector,true);
+    }
+
+    /**
+     * 捕获主模块热更新状态
+     * @returns 热更新状态
+     */
+    public static captureHotState():Record<string, unknown>{
+        const main = ModuleFactory.getMain();
+        if(!main || typeof main.captureSetupState !== 'function'){
+            return {};
+        }
+        return main.captureSetupState();
+    }
+
+    /**
      * 启用debug模式
      */
     public static debug(){
@@ -215,4 +240,3 @@ export class Nodom{
         }
     }
 }
-

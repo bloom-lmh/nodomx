@@ -45,10 +45,15 @@ assert.match(client.body, /EventSource/);
 assert.match(client.body, /__NODOMX_HMR__/);
 
 global.window = { __NODOMX_HMR__: {} };
-let remounted = null;
+let hotReloaded = null;
 const nodom = {
-    remount(clazz, selector) {
-    remounted = { clazz, selector };
+    captureHotState() {
+        return {
+            count: 2
+        };
+    },
+    hotReload(clazz, selector, hotState) {
+        hotReloaded = { clazz, selector, hotState };
     }
 };
 
@@ -61,8 +66,11 @@ await bootstrapNodomApp({
 });
 
 assert.equal(global.window.__NODOMX_HMR__.entryUrl, "/dist/main.js");
-assert.deepEqual(remounted, {
+assert.deepEqual(hotReloaded, {
     clazz: DemoApp,
+    hotState: {
+        count: 2
+    },
     selector: "#app"
 });
 
