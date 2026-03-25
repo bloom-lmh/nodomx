@@ -1,0 +1,17 @@
+{
+  "name": "@nodomx/rollup-plugin-nd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "build": "node ./tests/rollup.smoke.mjs",
+    "test": "node ./tests/rollup.smoke.mjs"
+  },
+  "dependencies": {
+    "@nodomx/nd-compiler": "0.1.0"
+  }
+}

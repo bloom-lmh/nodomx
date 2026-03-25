@@ -7,8 +7,7 @@ const stageDir = path.join(packageDir, ".vsix-stage");
 const outputFile = path.join(packageDir, "nodomx-nd-vscode-0.1.0.vsix");
 
 const includeEntries = [
-    "extension.js",
-    "compiler.cjs",
+    "dist",
     "language-configuration.json",
     "syntaxes",
     "snippets",
@@ -18,6 +17,7 @@ const includeEntries = [
 ];
 
 async function main() {
+    runBuild();
     await fs.rm(stageDir, { recursive: true, force: true });
     await fs.mkdir(stageDir, { recursive: true });
 
@@ -59,6 +59,24 @@ async function main() {
     }
 
     console.log(`VSIX created at ${outputFile}`);
+}
+
+function runBuild() {
+    const result = spawnSync(
+        process.execPath,
+        [path.join(packageDir, "scripts", "build.cjs")],
+        {
+            cwd: packageDir,
+            stdio: "inherit"
+        }
+    );
+
+    if (result.error) {
+        throw result.error;
+    }
+    if (result.status !== 0) {
+        process.exit(result.status || 1);
+    }
 }
 
 main().catch((error) => {

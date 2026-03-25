@@ -3,6 +3,7 @@ import nodeResolve from "@rollup/plugin-node-resolve";
 import terser from "@rollup/plugin-terser";
 import { fileURLToPath } from "url";
 import path from "path";
+import nodomNd from "@nodomx/rollup-plugin-nd";
 import ts from "rollup-plugin-typescript2";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,8 +35,9 @@ export default {
 		}
 	],
 	plugins: [
+		nodomNd(),
 		nodeResolve({
-			extensions: [".js", ".ts"]
+			extensions: [".js", ".ts", ".nd"]
 		}),
 		ts(),
 		commonjs()

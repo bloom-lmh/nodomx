@@ -2360,7 +2360,11 @@ Notes:
 
 ## ND Single-File Components (experimental)
 
-The repository now includes a basic `.nd` single-file component toolchain.
+The repository now includes a usable `.nd` single-file component toolchain with three layers:
+
+- compiler and directory watch support
+- Rollup import support for `.nd`
+- a VSCode extension with a language server
 
 An `.nd` file can contain:
 
@@ -2390,6 +2394,7 @@ export default {
     const add = () => {
       count.value++;
     };
+
     return {
       count,
       doubleCount,
@@ -2406,26 +2411,49 @@ export default {
 </style>
 ```
 
-### Compile `.nd`
+### Compile and watch
 
-Compile a file from the repository root:
+Compile a single file:
 
 ```bash
 npm run compile:nd -- ./examples/nd-counter.nd
 ```
 
-The compiler writes a sibling generated module:
+Compile an entire directory:
+
+```bash
+npm run compile:nd -- ./examples
+```
+
+Watch `.nd` files during development:
+
+```bash
+npm run watch:nd
+```
+
+Generated output is written next to the source file:
 
 ```text
 examples/nd-counter.nd -> examples/nd-counter.nd.gen.mjs
 ```
 
+### Rollup integration
+
+The build chain now includes `@nodomx/rollup-plugin-nd`, so Rollup can import `.nd` files directly.
+
+```js
+import App from "./App.nd";
+```
+
+The repository root build also loads this plugin now, and `npm run watch` will rebuild when imported `.nd` files change.
+
 ### Workspace packages
 
-The repository now includes:
+The monorepo now includes:
 
-- `packages/nd-compiler`: `.nd` parser, compiler and CLI
-- `packages/vscode-extension`: local VSCode extension for `.nd`
+- `packages/nd-compiler`: `.nd` parser, compiler, CLI and watch utilities
+- `packages/rollup-plugin-nd`: Rollup plugin for direct `.nd` imports
+- `packages/vscode-extension`: local VSCode extension and language server
 
 ### VSCode extension
 
@@ -2447,7 +2475,14 @@ Or package it as a VSIX:
 npm run package:extension
 ```
 
-The extension currently provides:
+The extension now provides:
+
+- `.nd` language registration and syntax highlighting
+- compile command `NodomX: Compile Current .nd File`
+- compile-on-save to `.nd.gen.mjs`
+- language server diagnostics for missing or unknown template symbols
+- completions for `setup()` exposed bindings, template directives and composition APIs
+- go-to-definition from template bindings back to `setup()` declarations
 
 - `.nd` file registration
 - block syntax highlighting for template/script/style

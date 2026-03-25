@@ -11,8 +11,7 @@
     "url": "https://gitee.com/bloom_lmh/nodomx.git"
   },
   "files": [
-    "extension.js",
-    "compiler.cjs",
+    "dist",
     "language-configuration.json",
     "syntaxes",
     "snippets",
@@ -30,7 +29,7 @@
     "onLanguage:nd",
     "onCommand:nodomx.compileCurrentNdFile"
   ],
-  "main": "./extension.js",
+  "main": "./dist/extension.cjs",
   "contributes": {
     "languages": [
       {
@@ -66,6 +65,16 @@
           "default": "",
           "description": "Optional import source used when compiling .nd files. Leave empty to infer from the nearest package.json name."
         },
+        "nodomx.nd.compileOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically compile .nd files to sibling generated modules whenever a file is saved."
+        },
+        "nodomx.nd.enableLanguageServer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic completions, diagnostics, and go-to-definition for .nd files."
+        },
         "nodomx.nd.outputSuffix": {
           "type": "string",
           "default": ".nd.gen.mjs",
@@ -81,12 +90,17 @@
     ]
   },
   "scripts": {
-    "build": "node ./scripts/build-check.cjs",
-    "test": "node ./scripts/build-check.cjs",
+    "build": "node ./scripts/build.cjs",
+    "test": "node ./scripts/test.cjs",
     "package": "node ./scripts/package.cjs"
   },
   "dependencies": {},
   "devDependencies": {
-    "@vscode/vsce": "^3.6.2"
+    "@nodomx/nd-compiler": "0.1.0",
+    "@vscode/vsce": "^3.6.2",
+    "esbuild": "^0.25.1",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
   }
 }
