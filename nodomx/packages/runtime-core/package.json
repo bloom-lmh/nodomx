@@ -1,0 +1,50 @@
+{
+  "name": "@nodomx/runtime-core",
+  "version": "0.2.3",
+  "description": "Runtime core for the NodomX framework.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/bloom_lmh/nodomx.git",
+    "directory": "nodomx/packages/runtime-core"
+  },
+  "homepage": "https://gitee.com/bloom_lmh/nodomx",
+  "bugs": {
+    "url": "https://gitee.com/bloom_lmh/nodomx/issues"
+  },
+  "keywords": [
+    "nodomx",
+    "runtime-core",
+    "mvvm",
+    "module"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node ./scripts/clean-dist.mjs && tsc -p tsconfig.json",
+    "test": "npm run build"
+  },
+  "dependencies": {
+    "@nodomx/reactivity": "^0.2.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

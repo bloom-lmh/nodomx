@@ -8,6 +8,22 @@ export const officialNpmRegistry = "https://registry.npmjs.org/";
 
 export const publishablePackages = [
     {
+        dir: path.join("nodomx", "packages", "reactivity"),
+        name: "@nodomx/reactivity"
+    },
+    {
+        dir: path.join("nodomx", "packages", "runtime-core"),
+        name: "@nodomx/runtime-core"
+    },
+    {
+        dir: path.join("nodomx", "packages", "core"),
+        name: "@nodomx/core"
+    },
+    {
+        dir: "nodomx",
+        name: "nodomx"
+    },
+    {
         dir: "nd-compiler",
         name: "@nodomx/nd-compiler"
     },
@@ -62,6 +78,6 @@ export function incrementVersion(version, bump) {
 }
 
 export async function getCurrentReleaseVersion() {
-    const pkg = await readJson(resolveRepoPath("create-nodomx", "package.json"));
+    const pkg = await readJson(resolveRepoPath("nodomx", "package.json"));
     return pkg.version;
 }

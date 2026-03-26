@@ -38,8 +38,12 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "node ./scripts/clean-dist.mjs && tsc -p tsconfig.json",
+    "build": "node ./scripts/clean-dist.mjs && node ./scripts/build-dist.mjs",
     "test": "npm run build"
+  },
+  "dependencies": {
+    "@nodomx/reactivity": "^0.2.3",
+    "@nodomx/runtime-core": "^0.2.3"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

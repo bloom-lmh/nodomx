@@ -26,12 +26,18 @@ globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 const {
     Module,
     ModuleFactory,
+    Nodom,
     Renderer,
+    defineProps,
+    inject,
+    onInit,
+    onMounted,
     useComputed,
     useReactive,
     useState,
     useWatch,
-    useWatchEffect
+    useWatchEffect,
+    withDefaults
 } = await import("../dist/nodom.esm.js");
 
 const watchValues = [];
@@ -172,5 +178,64 @@ assert.equal(text("#visits"), "1");
 assert.equal(text("#summary"), "composition:2:1");
 
 hotModuleInstance.destroy();
+
+const appEvents = [];
+const demoPlugin = {
+    install(app) {
+        app.config.globalProperties.$formatCount = (value) => `count:${value}`;
+        app.provide("sharedLabel", "plugin-shared");
+    }
+};
+
+class AppApiModule extends Module {
+    template() {
+        return `
+            <div id="app-api">
+                <p id="provided">{{sharedLabel}}</p>
+                <p id="formatted">{{$formatCount(count)}}</p>
+                <p id="defaulted">{{propsLabel}}</p>
+            </div>
+        `;
+    }
+
+    setup() {
+        const count = useState(3);
+        const props = withDefaults(defineProps(), {
+            label: "default label"
+        });
+        const sharedLabel = inject("sharedLabel", "fallback");
+
+        onInit(() => {
+            appEvents.push("init");
+        });
+
+        onMounted(() => {
+            appEvents.push("mounted");
+        });
+
+        return {
+            count,
+            propsLabel: props.label,
+            sharedLabel
+        };
+    }
+}
+
+Nodom.use(demoPlugin);
+document.body.innerHTML = "";
+Renderer.setRootEl(document.body);
+const app = Nodom.createApp(AppApiModule);
+ModuleFactory.setAppContext(app.context);
+const appModule = ModuleFactory.get(AppApiModule);
+appModule.active();
+Renderer.render();
+
+assert.equal(text("#provided"), "plugin-shared");
+assert.equal(text("#formatted"), "count:3");
+assert.equal(text("#defaulted"), "default label");
+assert.deepEqual(appEvents, ["init", "mounted"]);
+
+appModule.destroy();
+ModuleFactory.setAppContext(undefined);
 
 console.log("composition smoke test passed");

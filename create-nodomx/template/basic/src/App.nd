@@ -13,34 +13,21 @@
   </div>
 </template>
 
-<script>
+<script setup>
 import { useComputed, useState } from "nodomx";
 
-export default {
-  setup() {
-    const title = useState("NodomX Starter");
-    const headline = useState("Build pages with .nd single-file components");
-    const count = useState(1);
-    const doubleCount = useComputed(() => count.value * 2);
+const title = useState("NodomX Starter");
+const headline = useState("Build pages with .nd single-file components");
+const count = useState(1);
+const doubleCount = useComputed(() => count.value * 2);
 
-    const increment = () => {
-      count.value++;
-    };
+const increment = () => {
+  count.value++;
+};
 
-    const reset = () => {
-      count.value = 1;
-    };
-
-    return {
-      count,
-      doubleCount,
-      headline,
-      increment,
-      reset,
-      title
-    };
-  }
-}
+const reset = () => {
+  count.value = 1;
+};
 </script>
 
 <style scoped>

@@ -1,45 +1,526 @@
-/**
- * 自定义元素管理器
- *
- * @remarks
- * 所有自定义元素需要添加到管理器才能使用
- */
-class DefineElementManager {
-    /**
-     * 添加自定义元素
-     * @param clazz -   自定义元素类或类数组
-     */
-    static add(clazz) {
-        if (Array.isArray(clazz)) {
-            for (const c of clazz) {
-                this.elements.set(c.name.toUpperCase(), c);
-            }
+const targetMap = new WeakMap();
+const reactiveMap = new WeakMap();
+const rawToReactiveMap = new WeakMap();
+let activeEffect;
+const effectStack = [];
+let currentScope;
+let bindingNotifier;
+class ReactiveEffect {
+    constructor(fn, scheduler) {
+        this.fn = fn;
+        this.scheduler = scheduler;
+        this.active = true;
+        this.deps = [];
+    }
+    run() {
+        if (!this.active) {
+            return this.fn();
         }
-        else {
-            this.elements.set(clazz.name.toUpperCase(), clazz);
+        cleanupEffect(this);
+        try {
+            effectStack.push(this);
+            activeEffect = this;
+            return this.fn();
+        }
+        finally {
+            effectStack.pop();
+            activeEffect = effectStack[effectStack.length - 1];
         }
     }
-    /**
-     * 获取自定义元素类
-     * @param tagName - 元素名
-     * @returns         自定义元素类
-     */
-    static get(tagName) {
-        return this.elements.get(tagName.toUpperCase());
-    }
-    /**
-     * 是否存在自定义元素
-     * @param tagName - 元素名
-     * @returns         存在或不存在
-     */
-    static has(tagName) {
-        return this.elements.has(tagName.toUpperCase());
+    stop() {
+        if (!this.active) {
+            return;
+        }
+        cleanupEffect(this);
+        this.active = false;
     }
 }
-/**
- * 自定义元素集合
- */
-DefineElementManager.elements = new Map();
+class StateRefImpl {
+    constructor(value) {
+        this.bindings = [];
+        this.rawValue = value;
+        this.innerValue = toReactiveValue(value, this);
+    }
+    get value() {
+        track(this, "value");
+        return this.innerValue;
+    }
+    set value(value) {
+        if (Object.is(value, this.rawValue)) {
+            return;
+        }
+        const oldValue = this.innerValue;
+        removeReactiveOwner(oldValue, this);
+        this.rawValue = value;
+        this.innerValue = toReactiveValue(value, this);
+        trigger(this, "value");
+        notifyBindings(this.bindings, oldValue, this.innerValue);
+    }
+    notifyBindingChange(oldValue, newValue) {
+        trigger(this, "value");
+        notifyBindings(this.bindings, oldValue, newValue);
+    }
+    addBinding(model, key) {
+        addBinding(this.bindings, model, key);
+    }
+    removeBinding(model, key) {
+        removeBinding(this.bindings, model, key);
+    }
+}
+class ComputedRefImpl {
+    constructor(getter, setter) {
+        this.getter = getter;
+        this.setter = setter;
+        this.bindings = [];
+        this.dirty = true;
+        this.runner = createEffect(() => this.getter(), () => {
+            if (this.dirty) {
+                return;
+            }
+            const oldValue = this.innerValue;
+            this.dirty = true;
+            trigger(this, "value");
+            if (this.bindings.length > 0) {
+                const newValue = this.value;
+                notifyBindings(this.bindings, oldValue, newValue);
+            }
+        }, true);
+    }
+    get value() {
+        track(this, "value");
+        if (this.dirty) {
+            this.innerValue = this.runner();
+            this.dirty = false;
+        }
+        return this.innerValue;
+    }
+    set value(value) {
+        if (!this.setter) {
+            return;
+        }
+        this.setter(value);
+    }
+    addBinding(model, key) {
+        addBinding(this.bindings, model, key);
+    }
+    removeBinding(model, key) {
+        removeBinding(this.bindings, model, key);
+    }
+}
+function cleanupEffect(effect) {
+    if (effect.deps.length === 0) {
+        return;
+    }
+    for (const dep of effect.deps) {
+        dep.delete(effect);
+    }
+    effect.deps.length = 0;
+}
+function createEffect(fn, scheduler, lazy) {
+    const effect = new ReactiveEffect(fn, scheduler);
+    const runner = effect.run.bind(effect);
+    runner.effect = effect;
+    if (!lazy) {
+        runner();
+    }
+    return runner;
+}
+function addBinding(bindings, model, key) {
+    if (bindings.find(item => item.model === model && item.key === key)) {
+        return;
+    }
+    bindings.push({ model, key });
+}
+function removeBinding(bindings, model, key) {
+    const index = bindings.findIndex(item => item.model === model && item.key === key);
+    if (index !== -1) {
+        bindings.splice(index, 1);
+    }
+}
+function notifyBindings(bindings, oldValue, newValue) {
+    for (const binding of bindings) {
+        trigger(binding.model, binding.key);
+        bindingNotifier === null || bindingNotifier === void 0 ? void 0 : bindingNotifier(binding.model, binding.key, oldValue, newValue);
+    }
+}
+function mergeBuckets(targetBucket, fromBucket) {
+    if (!fromBucket || targetBucket === fromBucket) {
+        return targetBucket;
+    }
+    for (const binding of fromBucket.bindings) {
+        addBinding(targetBucket.bindings, binding.model, binding.key);
+    }
+    for (const owner of fromBucket.owners) {
+        if (!targetBucket.owners.includes(owner)) {
+            targetBucket.owners.push(owner);
+        }
+    }
+    return targetBucket;
+}
+function isObject(value) {
+    return value !== null && typeof value === "object";
+}
+function createBucket(owner) {
+    return {
+        bindings: [],
+        owners: owner ? [owner] : []
+    };
+}
+function getReactiveMeta(target) {
+    if (!isObject(target)) {
+        return;
+    }
+    return reactiveMap.get(target);
+}
+function notifyBucket(bucket, value) {
+    for (const owner of bucket.owners) {
+        owner.notifyBindingChange(value, value);
+    }
+    notifyBindings(bucket.bindings, value, value);
+}
+function toReactiveValue(value, owner) {
+    if (!isObject(value)) {
+        return value;
+    }
+    return createReactiveObject(value, undefined, owner);
+}
+function resolveValue(source, deep) {
+    let value;
+    if (isRef(source) || isComputed(source)) {
+        value = source.value;
+    }
+    else if (typeof source === "function") {
+        value = source();
+    }
+    else {
+        value = source;
+    }
+    return deep ? traverse(value) : value;
+}
+function traverse(value, seen = new Set()) {
+    if (!isObject(value) || seen.has(value)) {
+        return value;
+    }
+    seen.add(value);
+    for (const key of Object.keys(value)) {
+        traverse(value[key], seen);
+    }
+    return value;
+}
+function recordCleanup(stop) {
+    if (currentScope) {
+        currentScope.addCompositionCleanup(stop);
+    }
+    return stop;
+}
+function configureReactivityRuntime(options = {}) {
+    bindingNotifier = options.notifyBindingUpdate;
+}
+function track(target, key) {
+    if (!activeEffect) {
+        return;
+    }
+    let depsMap = targetMap.get(target);
+    if (!depsMap) {
+        depsMap = new Map();
+        targetMap.set(target, depsMap);
+    }
+    let dep = depsMap.get(key);
+    if (!dep) {
+        dep = new Set();
+        depsMap.set(key, dep);
+    }
+    if (dep.has(activeEffect)) {
+        return;
+    }
+    dep.add(activeEffect);
+    activeEffect.deps.push(dep);
+}
+function trigger(target, key) {
+    const depsMap = targetMap.get(target);
+    if (!depsMap) {
+        return;
+    }
+    const dep = depsMap.get(key);
+    if (!dep || dep.size === 0) {
+        return;
+    }
+    const effects = Array.from(dep);
+    for (const effect of effects) {
+        if (effect.scheduler) {
+            effect.scheduler();
+        }
+        else {
+            effect.run();
+        }
+    }
+}
+function createReactiveObject(target, bucket, owner) {
+    const existedProxy = rawToReactiveMap.get(target);
+    if (existedProxy) {
+        const existedMeta = reactiveMap.get(existedProxy);
+        if (existedMeta) {
+            if (bucket && existedMeta.bucket !== bucket) {
+                mergeBuckets(bucket, existedMeta.bucket);
+                existedMeta.bucket = bucket;
+            }
+            if (owner && !existedMeta.bucket.owners.includes(owner)) {
+                existedMeta.bucket.owners.push(owner);
+            }
+        }
+        return existedProxy;
+    }
+    const existedMeta = reactiveMap.get(target);
+    if (existedMeta) {
+        if (bucket && existedMeta.bucket !== bucket) {
+            mergeBuckets(bucket, existedMeta.bucket);
+            existedMeta.bucket = bucket;
+        }
+        if (owner && !existedMeta.bucket.owners.includes(owner)) {
+            existedMeta.bucket.owners.push(owner);
+        }
+        return target;
+    }
+    const sharedBucket = bucket || createBucket(owner);
+    if (bucket && owner && !bucket.owners.includes(owner)) {
+        bucket.owners.push(owner);
+    }
+    const proxy = new Proxy(target, {
+        get(src, key, receiver) {
+            const value = Reflect.get(src, key, receiver);
+            track(proxy, key);
+            if (isRef(value) || isComputed(value)) {
+                return value.value;
+            }
+            if (isObject(value)) {
+                return createReactiveObject(value, sharedBucket);
+            }
+            return value;
+        },
+        set(src, key, value, receiver) {
+            const oldValue = Reflect.get(src, key, receiver);
+            if (Object.is(oldValue, value)) {
+                return true;
+            }
+            const result = Reflect.set(src, key, value, receiver);
+            trigger(proxy, key);
+            notifyBucket(sharedBucket, proxy);
+            return result;
+        },
+        deleteProperty(src, key) {
+            const hasKey = Reflect.has(src, key);
+            const result = Reflect.deleteProperty(src, key);
+            if (hasKey) {
+                trigger(proxy, key);
+                notifyBucket(sharedBucket, proxy);
+            }
+            return result;
+        }
+    });
+    const meta = {
+        bucket: sharedBucket,
+        proxy,
+        raw: target
+    };
+    reactiveMap.set(proxy, meta);
+    rawToReactiveMap.set(target, proxy);
+    return proxy;
+}
+function reactive(target) {
+    return createReactiveObject(target);
+}
+function useReactive(target) {
+    return reactive(target);
+}
+function useState(value) {
+    return new StateRefImpl(value);
+}
+function useRef(value) {
+    return useState(value);
+}
+function useComputed(getter) {
+    if (typeof getter === "function") {
+        return new ComputedRefImpl(getter);
+    }
+    return new ComputedRefImpl(getter.get, getter.set);
+}
+function useWatch(source, callback, options = {}) {
+    let cleanup;
+    const getter = () => {
+        if (Array.isArray(source)) {
+            return source.map(item => resolveValue(item, options.deep));
+        }
+        return resolveValue(source, options.deep);
+    };
+    const onCleanup = (fn) => {
+        cleanup = fn;
+    };
+    let initialized = false;
+    let oldValue;
+    let runner;
+    const job = () => {
+        const newValue = runner();
+        if (!initialized) {
+            initialized = true;
+            oldValue = newValue;
+            if (options.immediate) {
+                callback(newValue, undefined, onCleanup);
+            }
+            return;
+        }
+        if (!options.deep && Object.is(newValue, oldValue)) {
+            return;
+        }
+        if (cleanup) {
+            cleanup();
+            cleanup = undefined;
+        }
+        callback(newValue, oldValue, onCleanup);
+        oldValue = newValue;
+    };
+    runner = createEffect(getter, job, true);
+    job();
+    const stop = () => {
+        if (cleanup) {
+            cleanup();
+            cleanup = undefined;
+        }
+        runner.effect.stop();
+    };
+    return recordCleanup(stop);
+}
+function useWatchEffect(effect) {
+    let cleanup;
+    const onCleanup = (fn) => {
+        cleanup = fn;
+    };
+    let runner;
+    const job = () => {
+        if (cleanup) {
+            cleanup();
+            cleanup = undefined;
+        }
+        runner();
+    };
+    runner = createEffect(() => effect(onCleanup), job, true);
+    job();
+    const stop = () => {
+        if (cleanup) {
+            cleanup();
+            cleanup = undefined;
+        }
+        runner.effect.stop();
+    };
+    return recordCleanup(stop);
+}
+function toValue(value) {
+    if (isRef(value) || isComputed(value)) {
+        return value.value;
+    }
+    return value;
+}
+function isRef(value) {
+    return value instanceof StateRefImpl;
+}
+function isComputed(value) {
+    return value instanceof ComputedRefImpl;
+}
+function isReactive(value) {
+    return !!getReactiveMeta(value);
+}
+function unwrapState(value) {
+    if (isRef(value) || isComputed(value)) {
+        return value.value;
+    }
+    return value;
+}
+function shouldSkipModelProxy(value) {
+    return isRef(value) || isComputed(value) || isReactive(value);
+}
+function bindStateHost(value, model, key) {
+    if (isRef(value) || isComputed(value)) {
+        value.addBinding(model, key);
+        return;
+    }
+    const meta = getReactiveMeta(value);
+    if (meta) {
+        addBinding(meta.bucket.bindings, model, key);
+    }
+}
+function unbindStateHost(value, model, key) {
+    if (isRef(value) || isComputed(value)) {
+        value.removeBinding(model, key);
+        return;
+    }
+    const meta = getReactiveMeta(value);
+    if (meta) {
+        removeBinding(meta.bucket.bindings, model, key);
+    }
+}
+function removeReactiveOwner(value, owner) {
+    const meta = getReactiveMeta(value);
+    if (!meta) {
+        return;
+    }
+    const index = meta.bucket.owners.indexOf(owner);
+    if (index !== -1) {
+        meta.bucket.owners.splice(index, 1);
+    }
+}
+function withCurrentScope(scope, handler) {
+    const previous = currentScope;
+    currentScope = scope;
+    try {
+        return handler();
+    }
+    finally {
+        currentScope = previous;
+    }
+}
+function getCurrentScope() {
+    return currentScope;
+}
+function toRaw(value) {
+    const meta = getReactiveMeta(value);
+    return meta ? meta.raw : value;
+}
+function cloneStateValue(value) {
+    if (typeof globalThis.structuredClone === "function") {
+        return globalThis.structuredClone(value);
+    }
+    return deepClone(value, new WeakMap());
+}
+function deepClone(value, seen) {
+    if (!isObject(value)) {
+        return value;
+    }
+    const raw = toRaw(value);
+    if (!isObject(raw)) {
+        return raw;
+    }
+    if (seen.has(raw)) {
+        return seen.get(raw);
+    }
+    if (Array.isArray(raw)) {
+        const arr = [];
+        seen.set(raw, arr);
+        for (const item of raw) {
+            arr.push(deepClone(item, seen));
+        }
+        return arr;
+    }
+    const result = {};
+    seen.set(raw, result);
+    for (const key of Reflect.ownKeys(raw)) {
+        result[key] = deepClone(raw[key], seen);
+    }
+    return result;
+}
+const ref = useRef;
+const computed = useComputed;
+const watch = useWatch;
+const watchEffect = useWatchEffect;
+const unref = toValue;
 
 /**
  * 指令类型
@@ -131,6 +612,93 @@ typeof SuppressedError === "function" ? SuppressedError : function (error, suppr
     var e = new Error(message);
     return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
 };
+
+/**
+ * ģ�鹤��
+ * @remarks
+ * ��������ģ���ࡢģ��ʵ��
+ */
+class ModuleFactory {
+    static add(item) {
+        if (this.modules.size === 0) {
+            this.mainModule = item;
+        }
+        this.modules.set(item.id, item);
+        this.addClass(item.constructor);
+    }
+    static get(name) {
+        const tp = typeof name;
+        let mdl;
+        if (tp === "number") {
+            return this.modules.get(name);
+        }
+        if (tp === "string") {
+            name = name.toLowerCase();
+            if (!this.classes.has(name)) {
+                name = this.aliasMap.get(name);
+            }
+            if (name && this.classes.has(name)) {
+                mdl = Reflect.construct(this.classes.get(name), [++this.moduleId]);
+            }
+        }
+        else {
+            mdl = Reflect.construct(name, [++this.moduleId]);
+        }
+        if (mdl) {
+            mdl.init();
+            return mdl;
+        }
+        return undefined;
+    }
+    static hasClass(clazzName) {
+        const name = clazzName.toLowerCase();
+        return this.classes.has(name) || this.aliasMap.has(name);
+    }
+    static addClass(clazz, alias) {
+        const name = clazz.name.toLowerCase();
+        this.classes.set(name, clazz);
+        if (alias) {
+            this.aliasMap.set(alias.toLowerCase(), name);
+        }
+    }
+    static getClass(name) {
+        name = name.toLowerCase();
+        return this.classes.has(name) ? this.classes.get(name) : this.classes.get(this.aliasMap.get(name));
+    }
+    static load(modulePath) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const m = yield import(modulePath);
+            if (m) {
+                for (const k of Object.keys(m)) {
+                    if (m[k].name) {
+                        this.addClass(m[k]);
+                        return m[k];
+                    }
+                }
+            }
+            return undefined;
+        });
+    }
+    static remove(id) {
+        this.modules.delete(id);
+    }
+    static setMain(m) {
+        this.mainModule = m;
+    }
+    static getMain() {
+        return this.mainModule;
+    }
+    static setAppContext(context) {
+        this.appContext = context;
+    }
+    static getAppContext() {
+        return this.appContext;
+    }
+}
+ModuleFactory.modules = new Map();
+ModuleFactory.classes = new Map();
+ModuleFactory.aliasMap = new Map();
+ModuleFactory.moduleId = 0;
 
 /*
  * 英文消息文件
@@ -263,169 +831,901 @@ const NodomMessage_zh = {
 };
 
 /**
- * 模块工厂
- * @remarks
- * 管理所有模块类、模块实例
+ * 基础服务库
  */
-class ModuleFactory {
+class Util {
     /**
-     * 添加模块实例到工厂
-     * @param item -  模块对象
+     * 唯一主键
      */
-    static add(item) {
-        // 第一个为主模块
-        if (this.modules.size === 0) {
-            this.mainModule = item;
-        }
-        this.modules.set(item.id, item);
-        //添加模块类
-        this.addClass(item.constructor);
+    static genId() {
+        return this.generatedId++;
     }
     /**
-     * 获得模块
-     * @remarks
-     * 当name为id时，则获取对应id的模块
-     *
-     * 当name为字符串时，表示模块类名
-     *
-     * 当name为class时，表示模块类
-     *
-     * @param name -  类或实例id
+     * 初始化保留字map
      */
-    static get(name) {
-        const tp = typeof name;
-        let mdl;
-        if (tp === 'number') { //数字，模块id
-            return this.modules.get(name);
-        }
-        else {
-            if (tp === 'string') { //字符串，模块类名
-                name = name.toLowerCase();
-                if (!this.classes.has(name)) { //为别名
-                    name = this.aliasMap.get(name);
-                }
-                if (this.classes.has(name)) {
-                    mdl = Reflect.construct(this.classes.get(name), [++this.moduleId]);
-                }
-            }
-            else { //模块类
-                mdl = Reflect.construct(name, [++this.moduleId]);
-            }
-            if (mdl) {
-                mdl.init();
-                return mdl;
-            }
-        }
-    }
-    /**
-     * 是否存在模块类
-     * @param clazzName -   模块类名
-     * @returns     true/false
-     */
-    static hasClass(clazzName) {
-        const name = clazzName.toLowerCase();
-        return this.classes.has(name) || this.aliasMap.has(name);
-    }
-    /**
-     * 添加模块类
-     * @param clazz -   模块类
-     * @param alias -   别名
-     */
-    static addClass(clazz, alias) {
-        //转换成小写
-        const name = clazz.name.toLowerCase();
-        this.classes.set(name, clazz);
-        //添加别名
-        if (alias) {
-            this.aliasMap.set(alias.toLowerCase(), name);
-        }
-    }
-    /**
-     * 获取模块类
-     * @param name -    类名或别名
-     * @returns         模块类
-     */
-    static getClass(name) {
-        name = name.toLowerCase();
-        return this.classes.has(name) ? this.classes.get(name) : this.classes.get(this.aliasMap.get(name));
-    }
-    /**
-     * 加载模块
-     * @remarks
-     * 用于实现模块懒加载
-     * @param modulePath -   模块类路径
-     * @returns              模块类
-     */
-    static load(modulePath) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const m = yield import(modulePath);
-            if (m) {
-                //通过import的模块，查找模块类
-                for (const k of Object.keys(m)) {
-                    if (m[k].name) {
-                        this.addClass(m[k]);
-                        return m[k];
-                    }
-                }
-            }
+    static initKeyMap() {
+        [
+            'arguments', 'boolean', 'break', 'byte', 'catch',
+            'char', 'const', 'default', 'delete', 'do',
+            'double', 'else', 'enum', 'eval', 'false',
+            'float', 'for', 'function', 'goto', 'if',
+            'in', 'instanceof', 'int', 'let', 'long',
+            'null', 'return', 'short', 'switch', 'this',
+            'throw', 'true', 'try', 'this', 'throw',
+            'typeof', 'var', 'while', 'with', 'Array',
+            'Date', 'JSON', 'Set', 'Map', 'eval',
+            'Infinity', 'isFinite', 'isNaN', 'isPrototypeOf', 'Math',
+            'new', 'NaN', 'Number', 'Object', 'prototype', 'String',
+            'isPrototypeOf', 'undefined', 'valueOf'
+        ].forEach(item => {
+            this.keyWordMap.set(item, true);
         });
     }
     /**
-     * 从工厂移除模块
-     * @param id -    模块id
+     * 是否为 js 保留关键字
+     * @param name -    名字
+     * @returns         如果为保留字，则返回true，否则返回false
      */
-    static remove(id) {
-        this.modules.delete(id);
+    static isKeyWord(name) {
+        return this.keyWordMap.has(name);
+    }
+    /******对象相关******/
+    /**
+     * 对象复制
+     * @param srcObj -  源对象
+     * @param expKey -  不复制的键正则表达式或属性名
+     * @param extra -   附加参数
+     * @returns         复制的对象
+     */
+    static clone(srcObj, expKey, extra) {
+        const map = new WeakMap();
+        return clone(srcObj, expKey, extra);
+        /**
+         * clone对象
+         * @param src -      待clone对象
+         * @param expKey -   不克隆的键
+         * @param extra -    clone附加参数
+         * @returns        克隆后的对象
+         */
+        function clone(src, expKey, extra) {
+            //非对象或函数，直接返回            
+            if (!src || typeof src !== 'object' || Util.isFunction(src)) {
+                return src;
+            }
+            let dst;
+            //带有clone方法，则直接返回clone值
+            if (src.clone && Util.isFunction(src.clone)) {
+                return src.clone(extra);
+            }
+            else if (Util.isObject(src)) {
+                dst = new Object();
+                //把对象加入map，如果后面有新克隆对象，则用新克隆对象进行覆盖
+                map.set(src, dst);
+                Object.getOwnPropertyNames(src).forEach((prop) => {
+                    //不克隆的键
+                    if (expKey) {
+                        if (expKey.constructor === RegExp && expKey.test(prop) //正则表达式匹配的键不复制
+                            || Util.isArray(expKey) && expKey.includes(prop) //被排除的键不复制
+                        ) {
+                            return;
+                        }
+                    }
+                    dst[prop] = getCloneObj(src[prop], expKey, extra);
+                });
+            }
+            else if (Util.isMap(src)) {
+                dst = new Map();
+                //把对象加入map，如果后面有新克隆对象，则用新克隆对象进行覆盖
+                src.forEach((value, key) => {
+                    //不克隆的键
+                    if (expKey) {
+                        if (expKey.constructor === RegExp && expKey.test(key) //正则表达式匹配的键不复制
+                            || expKey.includes(key)) { //被排除的键不复制
+                            return;
+                        }
+                    }
+                    dst.set(key, getCloneObj(value, expKey, extra));
+                });
+            }
+            else if (Util.isArray(src)) {
+                dst = [];
+                //把对象加入map，如果后面有新克隆对象，则用新克隆对象进行覆盖
+                src.forEach(function (item, i) {
+                    dst[i] = getCloneObj(item, expKey, extra);
+                });
+            }
+            return dst;
+        }
+        /**
+         * 获取clone对象
+         * @param value -     待clone值
+         * @param expKey -    排除键
+         * @param extra -     附加参数
+         */
+        function getCloneObj(value, expKey, extra) {
+            if (typeof value === 'object' && !Util.isFunction(value)) {
+                let co = null;
+                if (!map.has(value)) { //clone新对象
+                    co = clone(value, expKey, extra);
+                }
+                else { //从map中获取对象
+                    co = map.get(value);
+                }
+                return co;
+            }
+            return value;
+        }
     }
     /**
-     * 设置应用主模块
-     * @param m - 	模块
+     * 比较两个对象值是否相同(只比较object和array)
+     * @param src - 源对象
+     * @param dst - 目标对象
+     * @returns     值相同则返回true，否则返回false
      */
-    static setMain(m) {
-        this.mainModule = m;
+    static compare(src, dst) {
+        return cmp(src, dst);
+        function cmp(o1, o2) {
+            if (o1 === o2) {
+                return true;
+            }
+            const keys1 = Object.keys(o1);
+            const keys2 = Object.keys(o2);
+            if (keys1.length !== keys2.length) {
+                return false;
+            }
+            for (const k of keys1) {
+                if (typeof o1[k] === 'object' && typeof o2[k] === 'object') {
+                    if (!cmp(o1[k], o2[k])) {
+                        return false;
+                    }
+                }
+                else if (o1[k] !== o2[k]) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
     /**
-     * 获取应用主模块
-     * @returns 	应用的主模块
+     * 获取对象自有属性
+     * @param obj - 需要获取属性的对象
+     * @returns     返回属性数组
      */
-    static getMain() {
-        return this.mainModule;
+    static getOwnProps(obj) {
+        if (!obj) {
+            return [];
+        }
+        return Object.getOwnPropertyNames(obj);
+    }
+    /**************对象判断相关************/
+    /**
+     * 判断是否为函数
+     * @param foo - 检查的对象
+     * @returns     true/false
+     */
+    static isFunction(foo) {
+        return foo !== undefined && foo !== null && foo.constructor === Function;
+    }
+    /**
+     * 判断是否为数组
+     * @param obj -   检查的对象
+     * @returns     true/false
+     */
+    static isArray(obj) {
+        return Array.isArray(obj);
+    }
+    /**
+     * 判断是否为map
+     * @param obj -   检查的对象
+     */
+    static isMap(obj) {
+        return obj !== null && obj !== undefined && obj.constructor === Map;
+    }
+    /**
+     * 判断是否为对象
+     * @param obj -   检查的对象
+     * @returns     true/false
+     */
+    static isObject(obj) {
+        return obj !== null && obj !== undefined && obj.constructor === Object;
+    }
+    /**
+     * 判断对象/字符串是否为空
+     * @param obj - 检查的对象
+     * @returns     true/false
+     */
+    static isEmpty(obj) {
+        if (obj === null || obj === undefined)
+            return true;
+        if (this.isObject(obj)) {
+            const keys = Object.keys(obj);
+            return keys.length === 0;
+        }
+        else if (typeof obj === 'string') {
+            return obj === '';
+        }
+        return false;
+    }
+    /******日期相关******/
+    /**
+     * 日期格式化
+     * @param timestamp -   时间戳
+     * @param format -      日期格式
+     * @returns             日期串
+     */
+    static formatDate(timeStamp, format) {
+        if (typeof timeStamp === 'string') {
+            //排除日期格式串,只处理时间戳
+            if (/^\d+$/.test(timeStamp)) {
+                timeStamp = Number(timeStamp);
+            }
+            else {
+                throw new NError('invoke', 'Util.formatDate', '0', 'date string', 'date');
+            }
+        }
+        //得到日期
+        const date = new Date(timeStamp);
+        // invalid date
+        if (isNaN(date.getDay())) {
+            throw new NError('invoke', 'Util.formatDate', '0', 'date string', 'date');
+        }
+        const o = {
+            "M+": date.getMonth() + 1, //月份
+            "d+": date.getDate(), //日
+            "h+": date.getHours(), //小时
+            "H+": date.getHours(), //小时
+            "m+": date.getMinutes(), //分
+            "s+": date.getSeconds(), //秒
+            "S": date.getMilliseconds() //毫秒
+        };
+        let re;
+        //年
+        if (re = /(y+)/.exec(format)) {
+            format = format.replace(re[0], (date.getFullYear() + "").substring(4 - re[0].length));
+        }
+        //月日
+        this.getOwnProps(o).forEach(function (k) {
+            if (re = new RegExp("(" + k + ")").exec(format)) {
+                format = format.replace(re[0], re[0].length === 1 ? o[k] : ("00" + o[k]).substring((o[k] + '').length));
+            }
+        });
+        //星期
+        format = format.replace(/(E+)/, NodomMessage.WeekDays[date.getDay() + ""]);
+        return format;
+    }
+    /******字符串相关*****/
+    /**
+     * 编译字符串，把 \{n\}替换成带入值
+     * @param src -     待编译的字符串
+     * @param params -  参数数组
+     * @returns     转换后的消息
+     */
+    static compileStr(src, ...params) {
+        if (!params || params.length === 0) {
+            return src;
+        }
+        let reg;
+        for (let i = 0; i < params.length; i++) {
+            if (src.indexOf('\{' + i + '\}') !== -1) {
+                reg = new RegExp('\\{' + i + '\\}', 'g');
+                src = src.replace(reg, params[i]);
+            }
+            else {
+                break;
+            }
+        }
+        return src;
+    }
+    /**
+     * 在节点后插入节点
+     * @param src -     待插入节点
+     * @param dst -     目标位置节点
+     */
+    static insertAfter(src, dst) {
+        if (!dst.parentElement) {
+            return;
+        }
+        const pEl = dst.parentElement;
+        if (dst === pEl.lastChild) {
+            pEl.appendChild(src);
+        }
+        else {
+            pEl.insertBefore(src, dst.nextSibling);
+        }
     }
 }
 /**
- * 模块对象集合
- * @remarks
- * 格式为map，其中：
- *
- * key: 模块id
- *
- * value: 模块对象
+ * 全局id
  */
-ModuleFactory.modules = new Map();
+Util.generatedId = 1;
 /**
- * 模块类集合
- * @remarks
- * 格式为map，其中：
- *
- *  key:    模块类名或别名
- *
- *  value:  模块类
+ * js 保留字 map
  */
-ModuleFactory.classes = new Map();
+Util.keyWordMap = new Map();
+//初始化keymap
+Util.initKeyMap();
+
+class RequestManager {
+    /**
+     * 设置相同请求拒绝时间间隔
+     * @param time -  时间间隔（ms）
+     */
+    static setRejectTime(time) {
+        this.rejectReqTick = time;
+    }
+    /**
+     * ajax 请求
+     *
+     * @param config -  object 或 string，如果为string，则表示url，直接以get方式获取资源，如果为 object，配置项如下:
+     * ```
+     *  参数名|类型|默认值|必填|可选值|描述
+     *  -|-|-|-|-|-
+     *  url|string|无|是|无|请求url
+     *	method|string|GET|否|GET,POST,HEAD|请求类型
+     *	params|object/FormData|空object|否|无|参数，json格式
+     *	async|bool|true|否|true,false|是否异步
+     *  timeout|number|0|否|无|请求超时时间
+     *  type|string|text|否|json,text|
+     *	withCredentials|bool|false|否|true,false|同源策略，跨域时cookie保存
+     *  header|Object|无|否|无|request header 对象
+     *  user|string|无|否|无|需要认证的请求对应的用户名
+     *  pwd|string|无|否|无|需要认证的请求对应的密码
+     *  rand|bool|无|否|无|请求随机数，设置则浏览器缓存失效
+     * ```
+     */
+    static request(config) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const time = Date.now();
+            //如果设置了rejectReqTick，则需要进行判断
+            if (this.rejectReqTick > 0) {
+                if (this.requestMap.has(config.url)) {
+                    const obj = this.requestMap.get(config.url);
+                    if (time - obj['time'] < this.rejectReqTick && Util.compare(obj['params'], config.params)) {
+                        return new Promise((resolve) => {
+                            resolve(null);
+                        });
+                    }
+                }
+                //加入请求集合
+                this.requestMap.set(config.url, {
+                    time: time,
+                    params: config.params
+                });
+            }
+            return new Promise((resolve, reject) => {
+                if (typeof config === 'string') {
+                    config = {
+                        url: config
+                    };
+                }
+                config.params = config.params || {};
+                //随机数
+                if (config.rand) { //针对数据部分，仅在app中使用
+                    config.params.$rand = Math.random();
+                }
+                let url = config.url;
+                const async = config.async === false ? false : true;
+                const req = new XMLHttpRequest();
+                //设置同源策略
+                req.withCredentials = config.withCredentials;
+                //类型默认为get
+                const method = (config.method || 'GET').toUpperCase();
+                //超时，同步时不能设置
+                req.timeout = async ? config.timeout : 0;
+                req.onload = () => {
+                    //正常返回处理
+                    if (req.status === 200) {
+                        let r = req.responseText;
+                        if (config.type === 'json') {
+                            try {
+                                r = JSON.parse(r);
+                            }
+                            catch (e) {
+                                reject({ type: "jsonparse" });
+                            }
+                        }
+                        resolve(r);
+                    }
+                    else { //异常返回处理
+                        reject({ type: 'error', url: url });
+                    }
+                };
+                //设置timeout和error
+                req.ontimeout = () => reject({ type: 'timeout' });
+                req.onerror = () => reject({ type: 'error', url: url });
+                //上传数据
+                let data = null;
+                switch (method) {
+                    case 'GET':
+                        //参数
+                        let pa;
+                        if (Util.isObject(config.params)) {
+                            const ar = [];
+                            for (const k of Object.keys(config.params)) {
+                                let v = config.params[k];
+                                if (v === undefined || v === null) {
+                                    continue;
+                                }
+                                //对象转串
+                                if (typeof v === 'object') {
+                                    v = JSON.stringify(v);
+                                }
+                                ar.push(k + '=' + v);
+                            }
+                            pa = ar.join('&');
+                        }
+                        if (pa !== undefined) {
+                            if (url.indexOf('?') !== -1) {
+                                url += '&' + pa;
+                            }
+                            else {
+                                url += '?' + pa;
+                            }
+                        }
+                        break;
+                    case 'POST':
+                        if (config.params instanceof FormData) {
+                            data = config.params;
+                        }
+                        else {
+                            const fd = new FormData();
+                            for (const k of Object.keys(config.params)) {
+                                let v = config.params[k];
+                                if (v === undefined || v === null) {
+                                    continue;
+                                }
+                                if (typeof v === 'object') {
+                                    v = JSON.stringify(v);
+                                }
+                                //对象转串
+                                fd.append(k, v);
+                            }
+                            data = fd;
+                        }
+                        break;
+                }
+                //打开请求
+                req.open(method, url, async, config.user, config.pwd);
+                //设置request header
+                if (config.header) {
+                    Util.getOwnProps(config.header).forEach((item) => {
+                        req.setRequestHeader(item, config.header[item]);
+                    });
+                }
+                //发送请求
+                req.send(data);
+            }).catch((re) => {
+                switch (re.type) {
+                    case "error":
+                        throw new NError("notexist1", NodomMessage.TipWords['resource'], re.url);
+                    case "timeout":
+                        throw new NError("timeout");
+                    case "jsonparse":
+                        throw new NError("jsonparse");
+                }
+            });
+        });
+    }
+    /**
+     * 清除超时的缓存请求
+     */
+    static clearCache() {
+        const time = Date.now();
+        if (this.rejectReqTick > 0) {
+            if (this.requestMap) {
+                for (const kv of this.requestMap) {
+                    if (time - kv[1]['time'] > this.rejectReqTick) {
+                        this.requestMap.delete(kv[0]);
+                    }
+                }
+            }
+        }
+    }
+}
 /**
- * 别名map
- * @remarks
- * 格式为map，其中：
- *
- * key:     别名
- *
- * value:   类名
+ * 拒绝相同请求（url，参数）时间间隔
  */
-ModuleFactory.aliasMap = new Map();
+RequestManager.rejectReqTick = 0;
 /**
- * 模块id自增量
+ * 请求map，用于缓存之前的请求url和参数
+ * key:     url
+ * value:   请求参数
  */
-ModuleFactory.moduleId = 0;
+RequestManager.requestMap = new Map();
+
+/**
+ * 路由类
+ */
+class Route {
+    /**
+     * 构造器
+     * @param config - 路由配置项
+     */
+    constructor(config, parent) {
+        /**
+         * 路由参数名数组
+         */
+        this.params = [];
+        /**
+         * 路由参数数据
+         */
+        this.data = {};
+        /**
+         * 子路由
+         */
+        this.children = [];
+        if (!config || Util.isEmpty(config.path)) {
+            return;
+        }
+        this.id = Util.genId();
+        //参数赋值
+        for (const o of Object.keys(config)) {
+            this[o] = config[o];
+        }
+        this.parent = parent;
+        //解析路径
+        if (this.path) {
+            this.parse();
+        }
+        if (parent) {
+            parent.addChild(this);
+        }
+        //子路由
+        if (config.routes && Array.isArray(config.routes)) {
+            config.routes.forEach((item) => {
+                new Route(item, this);
+            });
+        }
+    }
+    /**
+     * 添加子路由
+     * @param child - 字路由
+     */
+    addChild(child) {
+        this.children.push(child);
+        child.parent = this;
+    }
+    /**
+     * 通过路径解析路由对象
+     */
+    parse() {
+        const pathArr = this.path.split('/');
+        let node = this.parent;
+        let param = [];
+        let paramIndex = -1; //最后一个参数开始
+        let prePath = ''; //前置路径
+        for (let i = 0; i < pathArr.length; i++) {
+            const v = pathArr[i].trim();
+            if (v === '') {
+                pathArr.splice(i--, 1);
+                continue;
+            }
+            if (v.startsWith(':')) { //参数
+                if (param.length === 0) {
+                    paramIndex = i;
+                }
+                param.push(v.substring(1));
+            }
+            else {
+                paramIndex = -1;
+                param = []; //上级路由的参数清空
+                this.path = v; //暂存path
+                let j = 0;
+                for (; j < node.children.length; j++) {
+                    const r = node.children[j];
+                    if (r.path === v) {
+                        node = r;
+                        break;
+                    }
+                }
+                //没找到，创建新节点
+                if (j === node.children.length) {
+                    if (prePath !== '') {
+                        new Route({ path: prePath }, node);
+                        node = node.children[node.children.length - 1];
+                    }
+                    prePath = v;
+                }
+            }
+            //不存在参数
+            this.params = paramIndex === -1 ? [] : param;
+        }
+    }
+    /**
+     * 克隆
+     * @returns 克隆对象
+     */
+    clone() {
+        const r = new Route();
+        Object.getOwnPropertyNames(this).forEach(item => {
+            if (item === 'data') {
+                return;
+            }
+            r[item] = this[item];
+        });
+        if (this.data) {
+            r.data = Util.clone(this.data);
+        }
+        return r;
+    }
+}
+
+let NodomMessage = NodomMessage_zh;
+class Nodom {
+    static createApp(clazz, selector) {
+        const app = createApp(clazz, selector);
+        Object.assign(app.config.globalProperties, this.config.globalProperties);
+        for (const [name, component] of this.queuedComponents.entries()) {
+            app.component(name, component);
+        }
+        for (const directive of this.queuedDirectives) {
+            app.directive(directive.name, directive.handler, directive.priority);
+        }
+        for (const provideItem of this.queuedProvides) {
+            app.provide(provideItem.key, provideItem.value);
+        }
+        for (const item of this.queuedPlugins) {
+            app.use(item.plugin, ...item.options);
+        }
+        return app;
+    }
+    static app(clazz, selector) {
+        return this.createApp(clazz, selector).mount(selector);
+    }
+    static remount(clazz, selector) {
+        this.clearMountedApp(selector);
+        return this.createApp(clazz, selector).mount(selector);
+    }
+    static hotReload(clazz, selector, hotState, changedFiles) {
+        if (this.reloadChangedModules(this.normalizeChangedFiles(changedFiles))) {
+            return;
+        }
+        const hotSnapshot = isModuleHotSnapshot(hotState) ? hotState : undefined;
+        if (!hotSnapshot && hotState && clazz && typeof clazz === "function") {
+            clazz["__nodomHotState"] = hotState;
+        }
+        const module = this.remount(clazz, selector);
+        Renderer.flush();
+        if (hotSnapshot && module && typeof module.applyHotSnapshot === "function") {
+            module.applyHotSnapshot(hotSnapshot);
+            Renderer.flush();
+        }
+    }
+    static captureHotState() {
+        const main = ModuleFactory.getMain();
+        if (!main || typeof main.captureHotSnapshot !== "function") {
+            return {};
+        }
+        return main.captureHotSnapshot();
+    }
+    static debug() {
+        this.isDebug = true;
+    }
+    static setLang(lang) {
+        switch (lang || "zh") {
+            case "zh":
+                NodomMessage = NodomMessage_zh;
+                break;
+            case "en":
+                NodomMessage = NodomMessage_en;
+                break;
+        }
+    }
+    static use(plugin, ...params) {
+        if (isQueuedPlugin(plugin)) {
+            if (!this.queuedPlugins.find(item => item.plugin === plugin)) {
+                this.queuedPlugins.push({
+                    options: params,
+                    plugin
+                });
+            }
+            return plugin;
+        }
+        if (!plugin["name"]) {
+            throw new NError("notexist", NodomMessage.TipWords.plugin);
+        }
+        if (!this["$" + plugin["name"]]) {
+            this["$" + plugin["name"]] = Reflect.construct(plugin, params || []);
+        }
+        return this["$" + plugin["name"]];
+    }
+    static component(name, clazz) {
+        this.queuedComponents.set(name, clazz);
+        ModuleFactory.addClass(clazz, name);
+        return this;
+    }
+    static directive(name, handler, priority) {
+        const existing = this.queuedDirectives.findIndex(item => item.name === name);
+        const nextDirective = { handler, name, priority };
+        if (existing === -1) {
+            this.queuedDirectives.push(nextDirective);
+        }
+        else {
+            this.queuedDirectives.splice(existing, 1, nextDirective);
+        }
+        DirectiveManager.addType(name, handler, priority);
+        return this;
+    }
+    static provide(key, value) {
+        const existing = this.queuedProvides.findIndex(item => item.key === key);
+        const nextProvide = { key, value };
+        if (existing === -1) {
+            this.queuedProvides.push(nextProvide);
+        }
+        else {
+            this.queuedProvides.splice(existing, 1, nextProvide);
+        }
+        return this;
+    }
+    static setGlobal(name, value) {
+        this.config.globalProperties[name] = value;
+        return this;
+    }
+    static createRoute(config, parent) {
+        if (!Nodom["$Router"]) {
+            throw new NError("uninit", NodomMessage.TipWords.route);
+        }
+        let route;
+        parent = parent || Nodom["$Router"].getRoot();
+        if (Util.isArray(config)) {
+            for (const item of config) {
+                route = new Route(item, parent);
+            }
+        }
+        else {
+            route = new Route(config, parent);
+        }
+        return route;
+    }
+    static createDirective(name, handler, priority) {
+        return DirectiveManager.addType(name, handler, priority);
+    }
+    static registModule(clazz, name) {
+        ModuleFactory.addClass(clazz, name);
+    }
+    static request(config) {
+        return __awaiter(this, void 0, void 0, function* () {
+            return yield RequestManager.request(config);
+        });
+    }
+    static setRejectTime(time) {
+        RequestManager.setRejectTime(time);
+    }
+    static clearMountedApp(selector) {
+        const main = ModuleFactory.getMain();
+        if (main) {
+            main.destroy();
+        }
+        const rootEl = (selector ? document.querySelector(selector) : null) || Renderer.getRootEl();
+        if (rootEl) {
+            rootEl.innerHTML = "";
+        }
+        ModuleFactory.setMain(undefined);
+    }
+    static reloadChangedModules(changedFiles) {
+        if (changedFiles.length === 0) {
+            return false;
+        }
+        const main = ModuleFactory.getMain();
+        if (!main || typeof main.getHotId !== "function") {
+            return false;
+        }
+        const hotIds = new Set(changedFiles);
+        const mainHotId = normalizeHotId$1(main.getHotId());
+        if (mainHotId && hotIds.has(mainHotId)) {
+            return false;
+        }
+        const targets = this.collectHotReloadTargets(main, hotIds);
+        if (targets.length === 0) {
+            return false;
+        }
+        const parents = new Set();
+        for (const target of targets) {
+            target.parent.children = target.parent.children.filter(child => child !== target.module);
+            target.parent.objectManager.removeDomParam(target.srcDomKey, "$savedModule");
+            parents.add(target.parent);
+        }
+        for (const parent of parents) {
+            Renderer.add(parent);
+        }
+        Renderer.flush();
+        let restored = false;
+        for (const target of targets) {
+            const nextModule = target.parent.children.find(child => {
+                var _a;
+                return ((_a = child === null || child === void 0 ? void 0 : child.srcDom) === null || _a === void 0 ? void 0 : _a.key) === target.srcDomKey
+                    && typeof child.getHotId === "function"
+                    && normalizeHotId$1(child.getHotId()) === target.hotId;
+            });
+            if (nextModule && typeof nextModule.applyHotSnapshot === "function") {
+                nextModule.applyHotSnapshot(target.snapshot);
+                restored = true;
+            }
+        }
+        if (restored) {
+            Renderer.flush();
+        }
+        return true;
+    }
+    static collectHotReloadTargets(module, hotIds) {
+        var _a, _b;
+        const hotId = normalizeHotId$1((_a = module.getHotId) === null || _a === void 0 ? void 0 : _a.call(module));
+        if (hotId && hotIds.has(hotId)) {
+            const parent = (_b = module.getParent) === null || _b === void 0 ? void 0 : _b.call(module);
+            if (parent && module.srcDom && typeof module.captureHotSnapshot === "function") {
+                return [{
+                        hotId,
+                        module,
+                        parent,
+                        snapshot: module.captureHotSnapshot(),
+                        srcDomKey: module.srcDom.key
+                    }];
+            }
+            return [];
+        }
+        const targets = [];
+        for (const child of module.children || []) {
+            targets.push(...this.collectHotReloadTargets(child, hotIds));
+        }
+        return targets;
+    }
+    static normalizeChangedFiles(changedFiles) {
+        if (!Array.isArray(changedFiles) || changedFiles.length === 0) {
+            return [];
+        }
+        const normalized = [];
+        for (const file of changedFiles) {
+            const hotId = normalizeHotId$1(file);
+            if (!hotId) {
+                continue;
+            }
+            if (!/\.nd($|\?)/i.test(hotId)) {
+                return [];
+            }
+            normalized.push(hotId.replace(/\?.*$/, ""));
+        }
+        return normalized;
+    }
+}
+Nodom.config = {
+    globalProperties: {}
+};
+Nodom.queuedPlugins = [];
+Nodom.queuedComponents = new Map();
+Nodom.queuedDirectives = [];
+Nodom.queuedProvides = [];
+function normalizeHotId$1(hotId) {
+    return typeof hotId === "string" ? hotId.replace(/\\/g, "/") : "";
+}
+function isModuleHotSnapshot(value) {
+    return !!value
+        && typeof value === "object"
+        && typeof value.hotId === "string"
+        && Array.isArray(value.children)
+        && typeof value.state === "object";
+}
+function isQueuedPlugin(value) {
+    if (typeof value === "function") {
+        return !/^class\s/.test(Function.prototype.toString.call(value));
+    }
+    return !!value && typeof value === "object" && typeof value.install === "function";
+}
+
+/**
+ * 异常处理类
+ */
+class NError extends Error {
+    constructor(errorName, ...params) {
+        super(errorName);
+        const msg = NodomMessage.ErrorMsgs[errorName];
+        if (msg === undefined) {
+            this.message = "未知错误";
+            return;
+        }
+        //编译提示信息
+        this.message = Util.compileStr(msg, params);
+    }
+}
 
 /**
  * 表达式类
@@ -1344,311 +2644,6 @@ class Renderer {
  */
 Renderer.waitList = [];
 
-class RequestManager {
-    /**
-     * 设置相同请求拒绝时间间隔
-     * @param time -  时间间隔（ms）
-     */
-    static setRejectTime(time) {
-        this.rejectReqTick = time;
-    }
-    /**
-     * ajax 请求
-     *
-     * @param config -  object 或 string，如果为string，则表示url，直接以get方式获取资源，如果为 object，配置项如下:
-     * ```
-     *  参数名|类型|默认值|必填|可选值|描述
-     *  -|-|-|-|-|-
-     *  url|string|无|是|无|请求url
-     *	method|string|GET|否|GET,POST,HEAD|请求类型
-     *	params|object/FormData|空object|否|无|参数，json格式
-     *	async|bool|true|否|true,false|是否异步
-     *  timeout|number|0|否|无|请求超时时间
-     *  type|string|text|否|json,text|
-     *	withCredentials|bool|false|否|true,false|同源策略，跨域时cookie保存
-     *  header|Object|无|否|无|request header 对象
-     *  user|string|无|否|无|需要认证的请求对应的用户名
-     *  pwd|string|无|否|无|需要认证的请求对应的密码
-     *  rand|bool|无|否|无|请求随机数，设置则浏览器缓存失效
-     * ```
-     */
-    static request(config) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const time = Date.now();
-            //如果设置了rejectReqTick，则需要进行判断
-            if (this.rejectReqTick > 0) {
-                if (this.requestMap.has(config.url)) {
-                    const obj = this.requestMap.get(config.url);
-                    if (time - obj['time'] < this.rejectReqTick && Util.compare(obj['params'], config.params)) {
-                        return new Promise((resolve) => {
-                            resolve(null);
-                        });
-                    }
-                }
-                //加入请求集合
-                this.requestMap.set(config.url, {
-                    time: time,
-                    params: config.params
-                });
-            }
-            return new Promise((resolve, reject) => {
-                if (typeof config === 'string') {
-                    config = {
-                        url: config
-                    };
-                }
-                config.params = config.params || {};
-                //随机数
-                if (config.rand) { //针对数据部分，仅在app中使用
-                    config.params.$rand = Math.random();
-                }
-                let url = config.url;
-                const async = config.async === false ? false : true;
-                const req = new XMLHttpRequest();
-                //设置同源策略
-                req.withCredentials = config.withCredentials;
-                //类型默认为get
-                const method = (config.method || 'GET').toUpperCase();
-                //超时，同步时不能设置
-                req.timeout = async ? config.timeout : 0;
-                req.onload = () => {
-                    //正常返回处理
-                    if (req.status === 200) {
-                        let r = req.responseText;
-                        if (config.type === 'json') {
-                            try {
-                                r = JSON.parse(r);
-                            }
-                            catch (e) {
-                                reject({ type: "jsonparse" });
-                            }
-                        }
-                        resolve(r);
-                    }
-                    else { //异常返回处理
-                        reject({ type: 'error', url: url });
-                    }
-                };
-                //设置timeout和error
-                req.ontimeout = () => reject({ type: 'timeout' });
-                req.onerror = () => reject({ type: 'error', url: url });
-                //上传数据
-                let data = null;
-                switch (method) {
-                    case 'GET':
-                        //参数
-                        let pa;
-                        if (Util.isObject(config.params)) {
-                            const ar = [];
-                            for (const k of Object.keys(config.params)) {
-                                let v = config.params[k];
-                                if (v === undefined || v === null) {
-                                    continue;
-                                }
-                                //对象转串
-                                if (typeof v === 'object') {
-                                    v = JSON.stringify(v);
-                                }
-                                ar.push(k + '=' + v);
-                            }
-                            pa = ar.join('&');
-                        }
-                        if (pa !== undefined) {
-                            if (url.indexOf('?') !== -1) {
-                                url += '&' + pa;
-                            }
-                            else {
-                                url += '?' + pa;
-                            }
-                        }
-                        break;
-                    case 'POST':
-                        if (config.params instanceof FormData) {
-                            data = config.params;
-                        }
-                        else {
-                            const fd = new FormData();
-                            for (const k of Object.keys(config.params)) {
-                                let v = config.params[k];
-                                if (v === undefined || v === null) {
-                                    continue;
-                                }
-                                if (typeof v === 'object') {
-                                    v = JSON.stringify(v);
-                                }
-                                //对象转串
-                                fd.append(k, v);
-                            }
-                            data = fd;
-                        }
-                        break;
-                }
-                //打开请求
-                req.open(method, url, async, config.user, config.pwd);
-                //设置request header
-                if (config.header) {
-                    Util.getOwnProps(config.header).forEach((item) => {
-                        req.setRequestHeader(item, config.header[item]);
-                    });
-                }
-                //发送请求
-                req.send(data);
-            }).catch((re) => {
-                switch (re.type) {
-                    case "error":
-                        throw new NError("notexist1", NodomMessage.TipWords['resource'], re.url);
-                    case "timeout":
-                        throw new NError("timeout");
-                    case "jsonparse":
-                        throw new NError("jsonparse");
-                }
-            });
-        });
-    }
-    /**
-     * 清除超时的缓存请求
-     */
-    static clearCache() {
-        const time = Date.now();
-        if (this.rejectReqTick > 0) {
-            if (this.requestMap) {
-                for (const kv of this.requestMap) {
-                    if (time - kv[1]['time'] > this.rejectReqTick) {
-                        this.requestMap.delete(kv[0]);
-                    }
-                }
-            }
-        }
-    }
-}
-/**
- * 拒绝相同请求（url，参数）时间间隔
- */
-RequestManager.rejectReqTick = 0;
-/**
- * 请求map，用于缓存之前的请求url和参数
- * key:     url
- * value:   请求参数
- */
-RequestManager.requestMap = new Map();
-
-/**
- * 路由类
- */
-class Route {
-    /**
-     * 构造器
-     * @param config - 路由配置项
-     */
-    constructor(config, parent) {
-        /**
-         * 路由参数名数组
-         */
-        this.params = [];
-        /**
-         * 路由参数数据
-         */
-        this.data = {};
-        /**
-         * 子路由
-         */
-        this.children = [];
-        if (!config || Util.isEmpty(config.path)) {
-            return;
-        }
-        this.id = Util.genId();
-        //参数赋值
-        for (const o of Object.keys(config)) {
-            this[o] = config[o];
-        }
-        this.parent = parent;
-        //解析路径
-        if (this.path) {
-            this.parse();
-        }
-        if (parent) {
-            parent.addChild(this);
-        }
-        //子路由
-        if (config.routes && Array.isArray(config.routes)) {
-            config.routes.forEach((item) => {
-                new Route(item, this);
-            });
-        }
-    }
-    /**
-     * 添加子路由
-     * @param child - 字路由
-     */
-    addChild(child) {
-        this.children.push(child);
-        child.parent = this;
-    }
-    /**
-     * 通过路径解析路由对象
-     */
-    parse() {
-        const pathArr = this.path.split('/');
-        let node = this.parent;
-        let param = [];
-        let paramIndex = -1; //最后一个参数开始
-        let prePath = ''; //前置路径
-        for (let i = 0; i < pathArr.length; i++) {
-            const v = pathArr[i].trim();
-            if (v === '') {
-                pathArr.splice(i--, 1);
-                continue;
-            }
-            if (v.startsWith(':')) { //参数
-                if (param.length === 0) {
-                    paramIndex = i;
-                }
-                param.push(v.substring(1));
-            }
-            else {
-                paramIndex = -1;
-                param = []; //上级路由的参数清空
-                this.path = v; //暂存path
-                let j = 0;
-                for (; j < node.children.length; j++) {
-                    const r = node.children[j];
-                    if (r.path === v) {
-                        node = r;
-                        break;
-                    }
-                }
-                //没找到，创建新节点
-                if (j === node.children.length) {
-                    if (prePath !== '') {
-                        new Route({ path: prePath }, node);
-                        node = node.children[node.children.length - 1];
-                    }
-                    prePath = v;
-                }
-            }
-            //不存在参数
-            this.params = paramIndex === -1 ? [] : param;
-        }
-    }
-    /**
-     * 克隆
-     * @returns 克隆对象
-     */
-    clone() {
-        const r = new Route();
-        Object.getOwnPropertyNames(this).forEach(item => {
-            if (item === 'data') {
-                return;
-            }
-            r[item] = this[item];
-        });
-        if (this.data) {
-            r.data = Util.clone(this.data);
-        }
-        return r;
-    }
-}
-
 /**
  * 调度器
  * @remarks
@@ -1727,673 +2722,218 @@ Scheduler.tasks = [];
  */
 Scheduler.started = false;
 
-/**
- * nodom提示消息
- */
-let NodomMessage = NodomMessage_zh;
-/**
- * Nodom接口暴露类
- */
-class Nodom {
-    /**
-     * 应用初始化
-     * @param clazz -     模块类
-     * @param selector -  根模块容器选择器，默认使用document.body
-     */
-    static app(clazz, selector) {
-        this.mountApp(clazz, selector, false);
+function createAppContext(seed) {
+    return {
+        app: undefined,
+        components: new Map((seed === null || seed === void 0 ? void 0 : seed.components) || []),
+        config: {
+            globalProperties: Object.assign({}, ((seed === null || seed === void 0 ? void 0 : seed.config.globalProperties) || {}))
+        },
+        directives: new Map((seed === null || seed === void 0 ? void 0 : seed.directives) || []),
+        installedPlugins: new Set((seed === null || seed === void 0 ? void 0 : seed.installedPlugins) || []),
+        provides: new Map((seed === null || seed === void 0 ? void 0 : seed.provides) || [])
+    };
+}
+function installPlugin(app, plugin, ...options) {
+    if (app.context.installedPlugins.has(plugin)) {
+        return app;
     }
-    /**
-     * 重新挂载应用(用于开发时热更新)
-     * @param clazz -     模块类
-     * @param selector -  根模块容器选择器
-     */
-    static remount(clazz, selector) {
-        this.mountApp(clazz, selector, true);
+    app.context.installedPlugins.add(plugin);
+    if (typeof plugin === "function") {
+        plugin(app, ...options);
+        return app;
     }
-    /**
-     * 重新挂载应用并恢复热更新状态
-     * @param clazz -       模块类
-     * @param selector -    根模块容器选择器
-     * @param hotState -    热更新状态快照
-     * @param changedFiles - 触发热更新的文件列表
-     */
-    static hotReload(clazz, selector, hotState, changedFiles) {
-        if (this.reloadChangedModules(this.normalizeChangedFiles(changedFiles))) {
-            return;
-        }
-        const hotSnapshot = isModuleHotSnapshot(hotState) ? hotState : undefined;
-        if (!hotSnapshot && hotState && clazz && typeof clazz === 'function') {
-            clazz['__nodomHotState'] = hotState;
-        }
-        const module = this.mountApp(clazz, selector, true);
-        Renderer.flush();
-        if (hotSnapshot && module && typeof module.applyHotSnapshot === 'function') {
-            module.applyHotSnapshot(hotSnapshot);
-            Renderer.flush();
-        }
+    if (plugin && typeof plugin.install === "function") {
+        plugin.install(app, ...options);
+        return app;
     }
-    /**
-     * 捕获主模块热更新状态
-     * @returns 热更新状态
-     */
-    static captureHotState() {
-        const main = ModuleFactory.getMain();
-        if (!main || typeof main.captureHotSnapshot !== 'function') {
-            return {};
-        }
-        return main.captureHotSnapshot();
+    throw new TypeError("Invalid NodomX plugin. Expected a function or an object with install().");
+}
+class App {
+    constructor(rootComponent, selector, seed) {
+        this.rootComponent = rootComponent;
+        this.selector = selector;
+        this.context = createAppContext(seed);
+        this.context.app = this;
+        this.config = this.context.config;
     }
-    /**
-     * 启用debug模式
-     */
-    static debug() {
-        this.isDebug = true;
-    }
-    /**
-     * 设置语言
-     * @param lang -  语言（zh,en），默认zh
-     */
-    static setLang(lang) {
-        //设置nodom语言
-        switch (lang || 'zh') {
-            case 'zh':
-                NodomMessage = NodomMessage_zh;
-                break;
-            case 'en':
-                NodomMessage = NodomMessage_en;
-        }
-    }
-    /**
-     * use插件（实例化）
-     * @remarks
-     * 插件实例化后以单例方式存在，第二次use同一个插件，将不进行任何操作，实例化后可通过Nodom['$类名']方式获取
-     * @param clazz -   插件类
-     * @param params -  参数
-     * @returns         实例化后的插件对象
-     */
-    static use(clazz, params) {
-        if (!clazz['name']) {
-            new NError('notexist', NodomMessage.TipWords.plugin);
-        }
-        if (!this['$' + clazz['name']]) {
-            this['$' + clazz['name']] = Reflect.construct(clazz, params || []);
-        }
-        return this['$' + clazz['name']];
-    }
-    /**
-     * 创建路由
-     * @remarks
-     * 配置项可以用嵌套方式
-     * @example
-     * ```js
-     * Nodom.createRoute([{
-     *   path: '/router',
-     *   //直接用模块类，需import
-     *   module: MdlRouteDir,
-     *   routes: [
-     *       {
-     *           path: '/route1',
-     *           module: MdlPMod1,
-     *           routes: [{
-     *               path: '/home',
-     *               //直接用路径，实现懒加载
-     *               module:'/examples/modules/route/mdlmod1.js'
-     *           }, ...]
-     *       }, {
-     *           path: '/route2',
-     *           module: MdlPMod2,
-     *           //设置进入事件
-     *           onEnter: function (module,path) {},
-     *           //设置离开事件
-     *           onLeave: function (module,path) {},
-     *           ...
-     *       }
-     *   ]
-     * }])
-     * ```
-     * @param config -  路由配置
-     * @param parent -  父路由
-     */
-    static createRoute(config, parent) {
-        if (!Nodom['$Router']) {
-            throw new NError('uninit', NodomMessage.TipWords.route);
-        }
-        let route;
-        parent = parent || Nodom['$Router'].getRoot();
-        if (Util.isArray(config)) {
-            for (const item of config) {
-                route = new Route(item, parent);
-            }
-        }
-        else {
-            route = new Route(config, parent);
-        }
-        return route;
-    }
-    /**
-     * 创建指令
-     * @param name -      指令名
-     * @param priority -  优先级（1最小，1-10为框架保留优先级）
-     * @param handler -   渲染时方法
-     */
-    static createDirective(name, handler, priority) {
-        return DirectiveManager.addType(name, handler, priority);
-    }
-    /**
-     * 注册模块
-     * @param clazz -   模块类
-     * @param name -    注册名，如果没有，则为类名
-     */
-    static registModule(clazz, name) {
-        ModuleFactory.addClass(clazz, name);
-    }
-    /**
-     * ajax 请求，如果需要用第三方ajax插件替代，重载该方法
-     * @param config -  object 或 string，如果为string，则表示url，直接以get方式获取资源，如果为 object，配置项如下:
-     * ```
-     *  参数名|类型|默认值|必填|可选值|描述
-     *  -|-|-|-|-|-
-     *  url|string|无|是|无|请求url
-     *	method|string|GET|否|GET,POST,HEAD|请求类型
-     *	params|object/FormData|空object|否|无|参数，json格式
-     *	async|bool|true|否|true,false|是否异步
-     *  timeout|number|0|否|无|请求超时时间
-     *  type|string|text|否|json,text|
-     *	withCredentials|bool|false|否|true,false|同源策略，跨域时cookie保存
-     *  header|Object|无|否|无|request header 对象
-     *  user|string|无|否|无|需要认证的请求对应的用户名
-     *  pwd|string|无|否|无|需要认证的请求对应的密码
-     *  rand|bool|无|否|无|请求随机数，设置则浏览器缓存失效
-     * ```
-     */
-    static request(config) {
-        return __awaiter(this, void 0, void 0, function* () {
-            return yield RequestManager.request(config);
-        });
-    }
-    /**
-     * 重复请求拒绝时间间隔
-     * @remarks
-     * 如果设置此项，当url一致时且间隔时间小于time，则拒绝请求
-     * @param time -  时间间隔（ms）
-     */
-    static setRejectTime(time) {
-        RequestManager.setRejectTime(time);
-    }
-    /**
-     * mount or remount app
-     * @param clazz -         模块类
-     * @param selector -      根模块容器选择器
-     * @param replaceExisting - 是否替换已有主模块
-     */
-    static mountApp(clazz, selector, replaceExisting) {
-        const rootEl = document.querySelector(selector) || Renderer.getRootEl() || document.body;
-        const main = ModuleFactory.getMain();
-        if (replaceExisting && main) {
-            main.destroy();
-            if (rootEl) {
-                rootEl.innerHTML = '';
-            }
-        }
-        //设置渲染器的根 element
-        Renderer.setRootEl(rootEl);
-        //渲染器启动渲染任务
+    mount(selector = this.selector) {
+        const rootEl = selector ? document.querySelector(selector) : null;
+        const target = (rootEl || Renderer.getRootEl() || document.body);
+        Renderer.setRootEl(target);
+        ModuleFactory.setAppContext(this.context);
         Scheduler.addTask(Renderer.render, Renderer);
-        //添加请求清理任务
         Scheduler.addTask(RequestManager.clearCache);
-        //启动调度器
         Scheduler.start();
-        const module = ModuleFactory.get(clazz);
+        const module = ModuleFactory.get(this.rootComponent);
         if (module) {
             ModuleFactory.setMain(module);
             module.active();
+            this.instance = module;
+            this.selector = selector;
         }
         return module;
     }
-    /**
-     * try to refresh only changed nd component subtrees
-     * @param changedFiles - changed nd files
-     * @returns true if handled by subtree hot swap
-     */
-    static reloadChangedModules(changedFiles) {
-        if (changedFiles.length === 0) {
-            return false;
+    unmount() {
+        if (this.instance) {
+            this.instance.destroy();
+            if (Renderer.getRootEl()) {
+                Renderer.getRootEl().innerHTML = "";
+            }
+            if (ModuleFactory.getMain() === this.instance) {
+                ModuleFactory.setMain(undefined);
+            }
+            this.instance = undefined;
         }
-        const main = ModuleFactory.getMain();
-        if (!main || typeof main.getHotId !== 'function') {
-            return false;
-        }
-        const hotIds = new Set(changedFiles);
-        const mainHotId = normalizeHotId$1(main.getHotId());
-        if (mainHotId && hotIds.has(mainHotId)) {
-            return false;
-        }
-        const targets = this.collectHotReloadTargets(main, hotIds);
-        if (targets.length === 0) {
-            return false;
-        }
-        const parents = new Set();
-        for (const target of targets) {
-            target.parent.children = target.parent.children.filter((child) => child !== target.module);
-            target.parent.objectManager.removeDomParam(target.srcDomKey, '$savedModule');
-            parents.add(target.parent);
-        }
-        for (const parent of parents) {
-            Renderer.add(parent);
-        }
+        return this;
+    }
+    use(plugin, ...options) {
+        installPlugin(this, plugin, ...options);
+        return this;
+    }
+    component(name, clazz) {
+        this.context.components.set(name.toLowerCase(), clazz);
+        ModuleFactory.addClass(clazz, name);
+        return this;
+    }
+    directive(name, handler, priority) {
+        this.context.directives.set(name, { handler, priority });
+        DirectiveManager.addType(name, handler, priority);
+        return this;
+    }
+    provide(key, value) {
+        this.context.provides.set(key, value);
+        return this;
+    }
+}
+function createApp(rootComponent, selector, seed) {
+    return new App(rootComponent, selector, seed);
+}
+
+function useRuntimeModule() {
+    const scope = getCurrentScope();
+    if (!scope) {
+        throw new Error("This composition api can only be used during setup().");
+    }
+    return scope;
+}
+function registerHook(name, hook) {
+    useRuntimeModule().addCompositionHook(name, hook);
+}
+function useModule() {
+    return useRuntimeModule();
+}
+function useModel() {
+    return useRuntimeModule().model;
+}
+function useApp() {
+    var _a;
+    return (_a = useRuntimeModule().appContext) === null || _a === void 0 ? void 0 : _a.app;
+}
+function useAttrs() {
+    return (useRuntimeModule().props || {});
+}
+const useProps = useAttrs;
+function useSlots() {
+    return useRuntimeModule().slots;
+}
+function defineProps() {
+    return useAttrs();
+}
+function withDefaults(props, defaults) {
+    return Object.assign(Object.assign({}, (defaults || {})), (props || {}));
+}
+function provide(key, value) {
+    useRuntimeModule().provide(key, value);
+}
+function inject(key, defaultValue) {
+    return useRuntimeModule().inject(key, defaultValue);
+}
+const useInject = inject;
+function useRouter() {
+    return Nodom["$Router"];
+}
+function useRoute() {
+    var _a;
+    return (((_a = useRuntimeModule().model) === null || _a === void 0 ? void 0 : _a["$route"]) || {});
+}
+function onInit(hook) {
+    registerHook("onInit", hook);
+}
+function onBeforeRender(hook) {
+    registerHook("onBeforeRender", hook);
+}
+function onRender(hook) {
+    registerHook("onRender", hook);
+}
+function onBeforeMount(hook) {
+    registerHook("onBeforeMount", hook);
+}
+function onMounted(hook) {
+    registerHook("onMount", hook);
+}
+function onBeforeUpdate(hook) {
+    registerHook("onBeforeUpdate", hook);
+}
+function onUpdated(hook) {
+    registerHook("onUpdate", hook);
+}
+function onBeforeUnmount(hook) {
+    registerHook("onBeforeUnMount", hook);
+}
+function onUnmounted(hook) {
+    registerHook("onUnMount", hook);
+}
+
+function nextTick(handler) {
+    return Promise.resolve().then(() => __awaiter(this, void 0, void 0, function* () {
         Renderer.flush();
-        let restored = false;
-        for (const target of targets) {
-            const nextModule = target.parent.children.find((child) => {
-                var _a;
-                return ((_a = child === null || child === void 0 ? void 0 : child.srcDom) === null || _a === void 0 ? void 0 : _a.key) === target.srcDomKey
-                    && typeof child.getHotId === 'function'
-                    && normalizeHotId$1(child.getHotId()) === target.hotId;
-            });
-            if (nextModule && typeof nextModule.applyHotSnapshot === 'function') {
-                nextModule.applyHotSnapshot(target.snapshot);
-                restored = true;
-            }
-        }
-        if (restored) {
-            Renderer.flush();
-        }
-        return true;
-    }
-    /**
-     * collect highest matched component targets for subtree hot replacement
-     * @param module - current module
-     * @param hotIds - changed hot ids
-     * @returns reload targets
-     */
-    static collectHotReloadTargets(module, hotIds) {
-        var _a, _b;
-        const hotId = normalizeHotId$1((_a = module.getHotId) === null || _a === void 0 ? void 0 : _a.call(module));
-        if (hotId && hotIds.has(hotId)) {
-            const parent = (_b = module.getParent) === null || _b === void 0 ? void 0 : _b.call(module);
-            if (parent && module.srcDom && typeof module.captureHotSnapshot === 'function') {
-                return [{
-                        hotId,
-                        module,
-                        parent,
-                        snapshot: module.captureHotSnapshot(),
-                        srcDomKey: module.srcDom.key
-                    }];
-            }
-            return [];
-        }
-        const targets = [];
-        for (const child of module.children || []) {
-            targets.push(...this.collectHotReloadTargets(child, hotIds));
-        }
-        return targets;
-    }
-    /**
-     * normalize changed files from the dev server payload
-     * only pure .nd updates can use subtree hmr safely
-     * @param changedFiles - raw changed files
-     * @returns normalized nd file ids
-     */
-    static normalizeChangedFiles(changedFiles) {
-        if (!Array.isArray(changedFiles) || changedFiles.length === 0) {
-            return [];
-        }
-        const normalized = [];
-        for (const file of changedFiles) {
-            const hotId = normalizeHotId$1(file);
-            if (!hotId) {
-                continue;
-            }
-            if (!/\.nd($|\?)/i.test(hotId)) {
-                return [];
-            }
-            normalized.push(hotId.replace(/\?.*$/, ''));
-        }
-        return normalized;
-    }
-}
-function normalizeHotId$1(hotId) {
-    return typeof hotId === 'string' ? hotId.replace(/\\/g, '/') : '';
-}
-function isModuleHotSnapshot(value) {
-    return !!value
-        && typeof value === 'object'
-        && typeof value.hotId === 'string'
-        && Array.isArray(value.children)
-        && typeof value.state === 'object';
+        return handler ? yield handler() : undefined;
+    }));
 }
 
 /**
- * 异常处理类
+ * 自定义元素管理器
+ *
+ * @remarks
+ * 所有自定义元素需要添加到管理器才能使用
  */
-class NError extends Error {
-    constructor(errorName, ...params) {
-        super(errorName);
-        const msg = NodomMessage.ErrorMsgs[errorName];
-        if (msg === undefined) {
-            this.message = "未知错误";
-            return;
-        }
-        //编译提示信息
-        this.message = Util.compileStr(msg, params);
-    }
-}
-
-/**
- * 基础服务库
- */
-class Util {
+class DefineElementManager {
     /**
-     * 唯一主键
+     * 添加自定义元素
+     * @param clazz -   自定义元素类或类数组
      */
-    static genId() {
-        return this.generatedId++;
-    }
-    /**
-     * 初始化保留字map
-     */
-    static initKeyMap() {
-        [
-            'arguments', 'boolean', 'break', 'byte', 'catch',
-            'char', 'const', 'default', 'delete', 'do',
-            'double', 'else', 'enum', 'eval', 'false',
-            'float', 'for', 'function', 'goto', 'if',
-            'in', 'instanceof', 'int', 'let', 'long',
-            'null', 'return', 'short', 'switch', 'this',
-            'throw', 'true', 'try', 'this', 'throw',
-            'typeof', 'var', 'while', 'with', 'Array',
-            'Date', 'JSON', 'Set', 'Map', 'eval',
-            'Infinity', 'isFinite', 'isNaN', 'isPrototypeOf', 'Math',
-            'new', 'NaN', 'Number', 'Object', 'prototype', 'String',
-            'isPrototypeOf', 'undefined', 'valueOf'
-        ].forEach(item => {
-            this.keyWordMap.set(item, true);
-        });
-    }
-    /**
-     * 是否为 js 保留关键字
-     * @param name -    名字
-     * @returns         如果为保留字，则返回true，否则返回false
-     */
-    static isKeyWord(name) {
-        return this.keyWordMap.has(name);
-    }
-    /******对象相关******/
-    /**
-     * 对象复制
-     * @param srcObj -  源对象
-     * @param expKey -  不复制的键正则表达式或属性名
-     * @param extra -   附加参数
-     * @returns         复制的对象
-     */
-    static clone(srcObj, expKey, extra) {
-        const map = new WeakMap();
-        return clone(srcObj, expKey, extra);
-        /**
-         * clone对象
-         * @param src -      待clone对象
-         * @param expKey -   不克隆的键
-         * @param extra -    clone附加参数
-         * @returns        克隆后的对象
-         */
-        function clone(src, expKey, extra) {
-            //非对象或函数，直接返回            
-            if (!src || typeof src !== 'object' || Util.isFunction(src)) {
-                return src;
+    static add(clazz) {
+        if (Array.isArray(clazz)) {
+            for (const c of clazz) {
+                this.elements.set(c.name.toUpperCase(), c);
             }
-            let dst;
-            //带有clone方法，则直接返回clone值
-            if (src.clone && Util.isFunction(src.clone)) {
-                return src.clone(extra);
-            }
-            else if (Util.isObject(src)) {
-                dst = new Object();
-                //把对象加入map，如果后面有新克隆对象，则用新克隆对象进行覆盖
-                map.set(src, dst);
-                Object.getOwnPropertyNames(src).forEach((prop) => {
-                    //不克隆的键
-                    if (expKey) {
-                        if (expKey.constructor === RegExp && expKey.test(prop) //正则表达式匹配的键不复制
-                            || Util.isArray(expKey) && expKey.includes(prop) //被排除的键不复制
-                        ) {
-                            return;
-                        }
-                    }
-                    dst[prop] = getCloneObj(src[prop], expKey, extra);
-                });
-            }
-            else if (Util.isMap(src)) {
-                dst = new Map();
-                //把对象加入map，如果后面有新克隆对象，则用新克隆对象进行覆盖
-                src.forEach((value, key) => {
-                    //不克隆的键
-                    if (expKey) {
-                        if (expKey.constructor === RegExp && expKey.test(key) //正则表达式匹配的键不复制
-                            || expKey.includes(key)) { //被排除的键不复制
-                            return;
-                        }
-                    }
-                    dst.set(key, getCloneObj(value, expKey, extra));
-                });
-            }
-            else if (Util.isArray(src)) {
-                dst = [];
-                //把对象加入map，如果后面有新克隆对象，则用新克隆对象进行覆盖
-                src.forEach(function (item, i) {
-                    dst[i] = getCloneObj(item, expKey, extra);
-                });
-            }
-            return dst;
-        }
-        /**
-         * 获取clone对象
-         * @param value -     待clone值
-         * @param expKey -    排除键
-         * @param extra -     附加参数
-         */
-        function getCloneObj(value, expKey, extra) {
-            if (typeof value === 'object' && !Util.isFunction(value)) {
-                let co = null;
-                if (!map.has(value)) { //clone新对象
-                    co = clone(value, expKey, extra);
-                }
-                else { //从map中获取对象
-                    co = map.get(value);
-                }
-                return co;
-            }
-            return value;
-        }
-    }
-    /**
-     * 比较两个对象值是否相同(只比较object和array)
-     * @param src - 源对象
-     * @param dst - 目标对象
-     * @returns     值相同则返回true，否则返回false
-     */
-    static compare(src, dst) {
-        return cmp(src, dst);
-        function cmp(o1, o2) {
-            if (o1 === o2) {
-                return true;
-            }
-            const keys1 = Object.keys(o1);
-            const keys2 = Object.keys(o2);
-            if (keys1.length !== keys2.length) {
-                return false;
-            }
-            for (const k of keys1) {
-                if (typeof o1[k] === 'object' && typeof o2[k] === 'object') {
-                    if (!cmp(o1[k], o2[k])) {
-                        return false;
-                    }
-                }
-                else if (o1[k] !== o2[k]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-    }
-    /**
-     * 获取对象自有属性
-     * @param obj - 需要获取属性的对象
-     * @returns     返回属性数组
-     */
-    static getOwnProps(obj) {
-        if (!obj) {
-            return [];
-        }
-        return Object.getOwnPropertyNames(obj);
-    }
-    /**************对象判断相关************/
-    /**
-     * 判断是否为函数
-     * @param foo - 检查的对象
-     * @returns     true/false
-     */
-    static isFunction(foo) {
-        return foo !== undefined && foo !== null && foo.constructor === Function;
-    }
-    /**
-     * 判断是否为数组
-     * @param obj -   检查的对象
-     * @returns     true/false
-     */
-    static isArray(obj) {
-        return Array.isArray(obj);
-    }
-    /**
-     * 判断是否为map
-     * @param obj -   检查的对象
-     */
-    static isMap(obj) {
-        return obj !== null && obj !== undefined && obj.constructor === Map;
-    }
-    /**
-     * 判断是否为对象
-     * @param obj -   检查的对象
-     * @returns     true/false
-     */
-    static isObject(obj) {
-        return obj !== null && obj !== undefined && obj.constructor === Object;
-    }
-    /**
-     * 判断对象/字符串是否为空
-     * @param obj - 检查的对象
-     * @returns     true/false
-     */
-    static isEmpty(obj) {
-        if (obj === null || obj === undefined)
-            return true;
-        if (this.isObject(obj)) {
-            const keys = Object.keys(obj);
-            return keys.length === 0;
-        }
-        else if (typeof obj === 'string') {
-            return obj === '';
-        }
-        return false;
-    }
-    /******日期相关******/
-    /**
-     * 日期格式化
-     * @param timestamp -   时间戳
-     * @param format -      日期格式
-     * @returns             日期串
-     */
-    static formatDate(timeStamp, format) {
-        if (typeof timeStamp === 'string') {
-            //排除日期格式串,只处理时间戳
-            if (/^\d+$/.test(timeStamp)) {
-                timeStamp = Number(timeStamp);
-            }
-            else {
-                throw new NError('invoke', 'Util.formatDate', '0', 'date string', 'date');
-            }
-        }
-        //得到日期
-        const date = new Date(timeStamp);
-        // invalid date
-        if (isNaN(date.getDay())) {
-            throw new NError('invoke', 'Util.formatDate', '0', 'date string', 'date');
-        }
-        const o = {
-            "M+": date.getMonth() + 1, //月份
-            "d+": date.getDate(), //日
-            "h+": date.getHours(), //小时
-            "H+": date.getHours(), //小时
-            "m+": date.getMinutes(), //分
-            "s+": date.getSeconds(), //秒
-            "S": date.getMilliseconds() //毫秒
-        };
-        let re;
-        //年
-        if (re = /(y+)/.exec(format)) {
-            format = format.replace(re[0], (date.getFullYear() + "").substring(4 - re[0].length));
-        }
-        //月日
-        this.getOwnProps(o).forEach(function (k) {
-            if (re = new RegExp("(" + k + ")").exec(format)) {
-                format = format.replace(re[0], re[0].length === 1 ? o[k] : ("00" + o[k]).substring((o[k] + '').length));
-            }
-        });
-        //星期
-        format = format.replace(/(E+)/, NodomMessage.WeekDays[date.getDay() + ""]);
-        return format;
-    }
-    /******字符串相关*****/
-    /**
-     * 编译字符串，把 \{n\}替换成带入值
-     * @param src -     待编译的字符串
-     * @param params -  参数数组
-     * @returns     转换后的消息
-     */
-    static compileStr(src, ...params) {
-        if (!params || params.length === 0) {
-            return src;
-        }
-        let reg;
-        for (let i = 0; i < params.length; i++) {
-            if (src.indexOf('\{' + i + '\}') !== -1) {
-                reg = new RegExp('\\{' + i + '\\}', 'g');
-                src = src.replace(reg, params[i]);
-            }
-            else {
-                break;
-            }
-        }
-        return src;
-    }
-    /**
-     * 在节点后插入节点
-     * @param src -     待插入节点
-     * @param dst -     目标位置节点
-     */
-    static insertAfter(src, dst) {
-        if (!dst.parentElement) {
-            return;
-        }
-        const pEl = dst.parentElement;
-        if (dst === pEl.lastChild) {
-            pEl.appendChild(src);
         }
         else {
-            pEl.insertBefore(src, dst.nextSibling);
+            this.elements.set(clazz.name.toUpperCase(), clazz);
         }
+    }
+    /**
+     * 获取自定义元素类
+     * @param tagName - 元素名
+     * @returns         自定义元素类
+     */
+    static get(tagName) {
+        return this.elements.get(tagName.toUpperCase());
+    }
+    /**
+     * 是否存在自定义元素
+     * @param tagName - 元素名
+     * @returns         存在或不存在
+     */
+    static has(tagName) {
+        return this.elements.has(tagName.toUpperCase());
     }
 }
 /**
- * 全局id
+ * 自定义元素集合
  */
-Util.generatedId = 1;
-/**
- * js 保留字 map
- */
-Util.keyWordMap = new Map();
-//初始化keymap
-Util.initKeyMap();
+DefineElementManager.elements = new Map();
 
 /**
  * 指令类
@@ -4282,535 +4822,11 @@ class ModelManager {
  */
 ModelManager.shareModelMap = new Map();
 
-const targetMap = new WeakMap();
-const reactiveMap = new WeakMap();
-const rawToReactiveMap = new WeakMap();
-let activeEffect;
-const effectStack = [];
-let currentModule;
-class ReactiveEffect {
-    constructor(fn, scheduler) {
-        this.fn = fn;
-        this.scheduler = scheduler;
-        this.active = true;
-        this.deps = [];
+configureReactivityRuntime({
+    notifyBindingUpdate(model, key, oldValue, newValue) {
+        ModelManager.update(model, key, oldValue, newValue);
     }
-    run() {
-        if (!this.active) {
-            return this.fn();
-        }
-        cleanupEffect(this);
-        try {
-            effectStack.push(this);
-            activeEffect = this;
-            return this.fn();
-        }
-        finally {
-            effectStack.pop();
-            activeEffect = effectStack[effectStack.length - 1];
-        }
-    }
-    stop() {
-        if (!this.active) {
-            return;
-        }
-        cleanupEffect(this);
-        this.active = false;
-    }
-}
-class StateRefImpl {
-    constructor(value) {
-        this.bindings = [];
-        this.rawValue = value;
-        this.innerValue = toReactiveValue(value, this);
-    }
-    get value() {
-        track(this, "value");
-        return this.innerValue;
-    }
-    set value(value) {
-        if (Object.is(value, this.rawValue)) {
-            return;
-        }
-        const oldValue = this.innerValue;
-        removeReactiveOwner(oldValue, this);
-        this.rawValue = value;
-        this.innerValue = toReactiveValue(value, this);
-        trigger(this, "value");
-        notifyBindings(this.bindings, oldValue, this.innerValue);
-    }
-    notifyBindingChange(oldValue, newValue) {
-        trigger(this, "value");
-        notifyBindings(this.bindings, oldValue, newValue);
-    }
-    addBinding(model, key) {
-        addBinding(this.bindings, model, key);
-    }
-    removeBinding(model, key) {
-        removeBinding(this.bindings, model, key);
-    }
-}
-class ComputedRefImpl {
-    constructor(getter, setter) {
-        this.getter = getter;
-        this.setter = setter;
-        this.bindings = [];
-        this.dirty = true;
-        this.runner = createEffect(() => this.getter(), () => {
-            if (this.dirty) {
-                return;
-            }
-            const oldValue = this.innerValue;
-            this.dirty = true;
-            trigger(this, "value");
-            if (this.bindings.length > 0) {
-                const newValue = this.value;
-                notifyBindings(this.bindings, oldValue, newValue);
-            }
-        }, true);
-    }
-    get value() {
-        track(this, "value");
-        if (this.dirty) {
-            this.innerValue = this.runner();
-            this.dirty = false;
-        }
-        return this.innerValue;
-    }
-    set value(value) {
-        if (!this.setter) {
-            return;
-        }
-        this.setter(value);
-    }
-    addBinding(model, key) {
-        addBinding(this.bindings, model, key);
-    }
-    removeBinding(model, key) {
-        removeBinding(this.bindings, model, key);
-    }
-}
-function cleanupEffect(effect) {
-    if (effect.deps.length === 0) {
-        return;
-    }
-    for (const dep of effect.deps) {
-        dep.delete(effect);
-    }
-    effect.deps.length = 0;
-}
-function createEffect(fn, scheduler, lazy) {
-    const effect = new ReactiveEffect(fn, scheduler);
-    const runner = effect.run.bind(effect);
-    runner.effect = effect;
-    if (!lazy) {
-        runner();
-    }
-    return runner;
-}
-function addBinding(bindings, model, key) {
-    if (bindings.find(item => item.model === model && item.key === key)) {
-        return;
-    }
-    bindings.push({ model, key });
-}
-function removeBinding(bindings, model, key) {
-    const index = bindings.findIndex(item => item.model === model && item.key === key);
-    if (index !== -1) {
-        bindings.splice(index, 1);
-    }
-}
-function notifyBindings(bindings, oldValue, newValue) {
-    for (const binding of bindings) {
-        trigger(binding.model, binding.key);
-        ModelManager.update(binding.model, binding.key, oldValue, newValue);
-    }
-}
-function mergeBuckets(targetBucket, fromBucket) {
-    if (!fromBucket || targetBucket === fromBucket) {
-        return targetBucket;
-    }
-    for (const binding of fromBucket.bindings) {
-        addBinding(targetBucket.bindings, binding.model, binding.key);
-    }
-    for (const owner of fromBucket.owners) {
-        if (!targetBucket.owners.includes(owner)) {
-            targetBucket.owners.push(owner);
-        }
-    }
-    return targetBucket;
-}
-function isObject(value) {
-    return value !== null && typeof value === "object";
-}
-function createBucket(owner) {
-    return {
-        bindings: [],
-        owners: owner ? [owner] : []
-    };
-}
-function getReactiveMeta(target) {
-    if (!isObject(target)) {
-        return;
-    }
-    return reactiveMap.get(target);
-}
-function notifyBucket(bucket, value) {
-    for (const owner of bucket.owners) {
-        owner.notifyBindingChange(value, value);
-    }
-    notifyBindings(bucket.bindings, value, value);
-}
-function toReactiveValue(value, owner) {
-    if (!isObject(value)) {
-        return value;
-    }
-    return createReactiveObject(value, undefined, owner);
-}
-function resolveValue(source, deep) {
-    let value;
-    if (isRef(source) || isComputed(source)) {
-        value = source.value;
-    }
-    else if (typeof source === "function") {
-        value = source();
-    }
-    else {
-        value = source;
-    }
-    return deep ? traverse(value) : value;
-}
-function traverse(value, seen = new Set()) {
-    if (!isObject(value) || seen.has(value)) {
-        return value;
-    }
-    seen.add(value);
-    for (const key of Object.keys(value)) {
-        traverse(value[key], seen);
-    }
-    return value;
-}
-function recordCleanup(stop) {
-    if (currentModule) {
-        currentModule.addCompositionCleanup(stop);
-    }
-    return stop;
-}
-function track(target, key) {
-    if (!activeEffect) {
-        return;
-    }
-    let depsMap = targetMap.get(target);
-    if (!depsMap) {
-        depsMap = new Map();
-        targetMap.set(target, depsMap);
-    }
-    let dep = depsMap.get(key);
-    if (!dep) {
-        dep = new Set();
-        depsMap.set(key, dep);
-    }
-    if (dep.has(activeEffect)) {
-        return;
-    }
-    dep.add(activeEffect);
-    activeEffect.deps.push(dep);
-}
-function trigger(target, key) {
-    const depsMap = targetMap.get(target);
-    if (!depsMap) {
-        return;
-    }
-    const dep = depsMap.get(key);
-    if (!dep || dep.size === 0) {
-        return;
-    }
-    const effects = Array.from(dep);
-    for (const effect of effects) {
-        if (effect.scheduler) {
-            effect.scheduler();
-        }
-        else {
-            effect.run();
-        }
-    }
-}
-function createReactiveObject(target, bucket, owner) {
-    const existedProxy = rawToReactiveMap.get(target);
-    if (existedProxy) {
-        const existedMeta = reactiveMap.get(existedProxy);
-        if (existedMeta) {
-            if (bucket && existedMeta.bucket !== bucket) {
-                mergeBuckets(bucket, existedMeta.bucket);
-                existedMeta.bucket = bucket;
-            }
-            if (owner && !existedMeta.bucket.owners.includes(owner)) {
-                existedMeta.bucket.owners.push(owner);
-            }
-        }
-        return existedProxy;
-    }
-    const existedMeta = reactiveMap.get(target);
-    if (existedMeta) {
-        if (bucket && existedMeta.bucket !== bucket) {
-            mergeBuckets(bucket, existedMeta.bucket);
-            existedMeta.bucket = bucket;
-        }
-        if (owner && !existedMeta.bucket.owners.includes(owner)) {
-            existedMeta.bucket.owners.push(owner);
-        }
-        return target;
-    }
-    const sharedBucket = bucket || createBucket(owner);
-    if (bucket && owner && !bucket.owners.includes(owner)) {
-        bucket.owners.push(owner);
-    }
-    const proxy = new Proxy(target, {
-        get(src, key, receiver) {
-            const value = Reflect.get(src, key, receiver);
-            track(proxy, key);
-            if (isRef(value) || isComputed(value)) {
-                return value.value;
-            }
-            if (isObject(value)) {
-                return createReactiveObject(value, sharedBucket);
-            }
-            return value;
-        },
-        set(src, key, value, receiver) {
-            const oldValue = Reflect.get(src, key, receiver);
-            if (Object.is(oldValue, value)) {
-                return true;
-            }
-            const result = Reflect.set(src, key, value, receiver);
-            trigger(proxy, key);
-            notifyBucket(sharedBucket, proxy);
-            return result;
-        },
-        deleteProperty(src, key) {
-            const hasKey = Reflect.has(src, key);
-            const result = Reflect.deleteProperty(src, key);
-            if (hasKey) {
-                trigger(proxy, key);
-                notifyBucket(sharedBucket, proxy);
-            }
-            return result;
-        }
-    });
-    const meta = {
-        bucket: sharedBucket,
-        proxy,
-        raw: target
-    };
-    reactiveMap.set(proxy, meta);
-    rawToReactiveMap.set(target, proxy);
-    return proxy;
-}
-function reactive(target) {
-    return createReactiveObject(target);
-}
-function useReactive(target) {
-    return reactive(target);
-}
-function useState(value) {
-    return new StateRefImpl(value);
-}
-function useRef(value) {
-    return useState(value);
-}
-function useComputed(getter) {
-    if (typeof getter === "function") {
-        return new ComputedRefImpl(getter);
-    }
-    return new ComputedRefImpl(getter.get, getter.set);
-}
-function useWatch(source, callback, options = {}) {
-    let cleanup;
-    const getter = () => {
-        if (Array.isArray(source)) {
-            return source.map(item => resolveValue(item, options.deep));
-        }
-        return resolveValue(source, options.deep);
-    };
-    const onCleanup = (fn) => {
-        cleanup = fn;
-    };
-    let initialized = false;
-    let oldValue;
-    let runner;
-    const job = () => {
-        const newValue = runner();
-        if (!initialized) {
-            initialized = true;
-            oldValue = newValue;
-            if (options.immediate) {
-                callback(newValue, undefined, onCleanup);
-            }
-            return;
-        }
-        if (!options.deep && Object.is(newValue, oldValue)) {
-            return;
-        }
-        if (cleanup) {
-            cleanup();
-            cleanup = undefined;
-        }
-        callback(newValue, oldValue, onCleanup);
-        oldValue = newValue;
-    };
-    runner = createEffect(getter, job, true);
-    job();
-    const stop = () => {
-        if (cleanup) {
-            cleanup();
-            cleanup = undefined;
-        }
-        runner.effect.stop();
-    };
-    return recordCleanup(stop);
-}
-function useWatchEffect(effect) {
-    let cleanup;
-    const onCleanup = (fn) => {
-        cleanup = fn;
-    };
-    let runner;
-    const job = () => {
-        if (cleanup) {
-            cleanup();
-            cleanup = undefined;
-        }
-        runner();
-    };
-    runner = createEffect(() => effect(onCleanup), job, true);
-    job();
-    const stop = () => {
-        if (cleanup) {
-            cleanup();
-            cleanup = undefined;
-        }
-        runner.effect.stop();
-    };
-    return recordCleanup(stop);
-}
-function toValue(value) {
-    if (isRef(value) || isComputed(value)) {
-        return value.value;
-    }
-    return value;
-}
-function isRef(value) {
-    return value instanceof StateRefImpl;
-}
-function isComputed(value) {
-    return value instanceof ComputedRefImpl;
-}
-function isReactive(value) {
-    return !!getReactiveMeta(value);
-}
-function unwrapState(value) {
-    if (isRef(value) || isComputed(value)) {
-        return value.value;
-    }
-    return value;
-}
-function shouldSkipModelProxy(value) {
-    return isRef(value) || isComputed(value) || isReactive(value);
-}
-function bindStateHost(value, model, key) {
-    if (isRef(value) || isComputed(value)) {
-        value.addBinding(model, key);
-        return;
-    }
-    const meta = getReactiveMeta(value);
-    if (meta) {
-        addBinding(meta.bucket.bindings, model, key);
-    }
-}
-function unbindStateHost(value, model, key) {
-    if (isRef(value) || isComputed(value)) {
-        value.removeBinding(model, key);
-        return;
-    }
-    const meta = getReactiveMeta(value);
-    if (meta) {
-        removeBinding(meta.bucket.bindings, model, key);
-    }
-}
-function removeReactiveOwner(value, owner) {
-    const meta = getReactiveMeta(value);
-    if (!meta) {
-        return;
-    }
-    const index = meta.bucket.owners.indexOf(owner);
-    if (index !== -1) {
-        meta.bucket.owners.splice(index, 1);
-    }
-}
-function withCurrentModule(module, handler) {
-    const previous = currentModule;
-    currentModule = module;
-    try {
-        return handler();
-    }
-    finally {
-        currentModule = previous;
-    }
-}
-function useModule() {
-    if (!currentModule) {
-        throw new Error("useModule must be called during setup.");
-    }
-    return currentModule;
-}
-function useModel() {
-    if (!currentModule) {
-        throw new Error("useModel must be called during setup.");
-    }
-    return currentModule.model;
-}
-function toRaw(value) {
-    const meta = getReactiveMeta(value);
-    return meta ? meta.raw : value;
-}
-function cloneStateValue(value) {
-    if (typeof globalThis.structuredClone === "function") {
-        return globalThis.structuredClone(value);
-    }
-    return deepClone(value, new WeakMap());
-}
-function deepClone(value, seen) {
-    if (!isObject(value)) {
-        return value;
-    }
-    const raw = toRaw(value);
-    if (!isObject(raw)) {
-        return raw;
-    }
-    if (seen.has(raw)) {
-        return seen.get(raw);
-    }
-    if (Array.isArray(raw)) {
-        const arr = [];
-        seen.set(raw, arr);
-        for (const item of raw) {
-            arr.push(deepClone(item, seen));
-        }
-        return arr;
-    }
-    const result = {};
-    seen.set(raw, result);
-    for (const key of Reflect.ownKeys(raw)) {
-        result[key] = deepClone(raw[key], seen);
-    }
-    return result;
-}
-const ref = useRef;
-const computed = useComputed;
-const watch = useWatch;
-const watchEffect = useWatchEffect;
-const unref = toValue;
-
+});
 /**
  * model proxy
  */
@@ -5162,176 +5178,47 @@ class DomManager {
     }
 }
 
-/**
- * 模块类
- *
- * @remarks
- * 模块方法说明：模板内使用的方法，包括事件方法，都在模块内定义
- *
- *  方法this：指向module实例
- *
- *  事件参数: model(当前按钮对应model),dom(事件对应虚拟dom),eventObj(事件对象),e(实际触发的html event)
- *
- *  表达式方法：参数按照表达式方式给定即可，如：
- * ```html
- *  <div>
- *      <div class={{getCls(st)}} e-click='click'>Hello Nodom</div>
- *  </div>
- * ```
- * ```js
- *  //事件方法
- *  click(model,dom,eventObj,e){
- *      //do something
- *  }
- *  //表达式方法
- *  //state 由表达式中给定，state由表达式传递，为当前dom model的一个属性
- *  getCls(state){
- *      //do something
- *  }
- * ```
- *
- * 模块事件，在模块不同阶段执行
- *
- * onInit              初始化后（constructor后，已经有model对象，但是尚未编译，只执行1次）
- *
- * onBeforeFirstRender 首次渲染前（只执行1次）
- *
- * onFirstRender       首次渲染后（只执行1次）
- *
- * onBeforeRender      渲染前
- *
- * onRender            渲染后
- *
- * onCompile           编译后
- *
- * onBeforeMount       挂载到document前
- *
- * onMount             挂载到document后
- *
- * onBeforeUnMount     从document脱离前
- *
- * onUnmount           从document脱离后
- *
- * onBeforeUpdate      更新到document前
- *
- * onUpdate            更新到document后
- */
 class Module {
-    /**
-     * 构造器
-     * @param id -  模块id
-     */
     constructor(id) {
-        /**
-         * 子模块数组，模板中引用的所有子模块
-         */
         this.children = [];
-        /**
-         * slot map
-         *
-         * key: slot name
-         *
-         * value: 渲染节点
-         *
-         */
         this.slots = new Map();
-        /**
-         * cleanup callbacks created by composition api
-         */
         this.compositionCleanups = [];
+        this.compositionHooks = new Map();
         this.id = id || Util.genId();
-        // this.modelManager = new ModelManager(this);
         this.domManager = new DomManager(this);
         this.objectManager = new ObjectManager(this);
         this.eventFactory = new EventFactory(this);
-        //加入模块工厂
+        this.appContext = ModuleFactory.getAppContext();
         ModuleFactory.add(this);
     }
-    /**
-     * 初始化操作
-     */
     init() {
         this.state = EModuleState.INIT;
-        //注册子模块
         if (Array.isArray(this.modules)) {
             for (const cls of this.modules) {
                 ModuleFactory.addClass(cls);
             }
             delete this.modules;
         }
-        //初始化model
+        this.appContext = this.appContext || ModuleFactory.getAppContext();
+        this.applyGlobalProperties();
         this.model = new Model(this.data() || {}, this);
         this.initSetupState();
         this.doModuleEvent('onInit');
     }
-    /**
-     * 模板串方法，使用时需重载
-     * @param props -   props对象，在模板中进行配置，从父模块传入
-     * @returns         模板串
-     * @virtual
-     */
     template(props) {
         return null;
     }
-    /**
-     * 数据方法，使用时需重载
-     * @returns  数据对象
-     * @virtual
-     */
     data() {
         return {};
     }
-    /**
-     * composition api entry
-     */
     setup() {
         return;
     }
-    /**
-     * 模型渲染
-     * @remarks
-     * 渲染流程：
-     *
-     * 1. 获取首次渲染标志
-     *
-     * 2. 执行template方法获得模板串
-     *
-     * 3. 与旧模板串比较，如果不同，则进行编译
-     *
-     * 4. 判断是否存在虚拟dom树（编译时可能导致模板串为空），没有则结束
-     *
-     * 5. 如果为首次渲染，执行onBeforeFirstRender事件
-     *
-     * 6. 执行onBeforeRender事件
-     *
-     * 7. 保留旧渲染树，进行新渲染
-     *
-     * 8. 执行onRender事件
-     *
-     * 9. 如果为首次渲染，执行onFirstRender事件
-     *
-     * 10. 渲染树为空，从document解除挂载
-     *
-     * 11. 如果未挂载，执行12，否则执行13
-     *
-     * 12. 执行挂载，结束
-     *
-     * 13. 新旧渲染树比较，比较结果为空，结束，否则执行14
-     *
-     * 14. 执行onBeforeUpdate事件
-     *
-     * 15. 更新到document
-     *
-     * 16. 执行onUpdate事件，结束
-     */
     render() {
-        //不是主模块，也没有srcDom，则不渲染
         if (this !== ModuleFactory.getMain() && (!this.srcDom || this.state === EModuleState.UNMOUNTED)) {
             return;
         }
-        //获取首次渲染标志
         const firstRender = this.oldTemplate === undefined;
-        //检测模板并编译
         let templateStr = this.template(this.props);
         if (!templateStr) {
             return;
@@ -5340,70 +5227,48 @@ class Module {
         if (templateStr === '') {
             return;
         }
-        //与旧模板不一样，需要重新编译
         if (templateStr !== this.oldTemplate) {
             this.oldTemplate = templateStr;
             this.compile(templateStr);
         }
-        //不存在domManager.vdomTree，不渲染
         if (!this.domManager.vdomTree) {
             return;
         }
-        //首次渲染
         if (firstRender) {
             this.doModuleEvent('onBeforeFirstRender');
         }
-        //渲染前事件
         this.doModuleEvent('onBeforeRender');
-        //保留旧树
         const oldTree = this.domManager.renderedTree;
-        //渲染
         const root = Renderer.renderDom(this, this.domManager.vdomTree, this.model);
         this.domManager.renderedTree = root;
-        //每次渲染后事件
         this.doModuleEvent('onRender');
-        //首次渲染
         if (firstRender) {
             this.doModuleEvent('onFirstRender');
         }
-        //渲染树为空，从html卸载
         if (!this.domManager.renderedTree) {
             this.unmount();
             return;
         }
-        //已经挂载
         if (this.state === EModuleState.MOUNTED) {
             if (oldTree && this.model) {
-                //新旧渲染树节点diff
                 const changeDoms = DiffTool.compare(this.domManager.renderedTree, oldTree);
-                //执行更改
                 if (changeDoms.length > 0) {
-                    //html节点更新前事件
                     this.doModuleEvent('onBeforeUpdate');
                     Renderer.handleChangedDoms(this, changeDoms);
-                    //html节点更新后事件
                     this.doModuleEvent('onUpdate');
                 }
             }
         }
-        else { //未挂载
+        else {
             this.mount();
         }
     }
-    /**
-     * 添加子模块
-     * @param module -    模块id或模块
-     */
     addChild(module) {
         if (!this.children.includes(module)) {
             this.children.push(module);
             module.parentId = this.id;
         }
     }
-    /**
-     * 移除子模块
-     * @param module -    子模块
-     */
     removeChild(module) {
         const ind = this.children.indexOf(module);
         if (ind !== -1) {
@@ -5411,86 +5276,57 @@ class Module {
             this.children.splice(ind, 1);
         }
     }
-    /**
-     * 激活模块(准备渲染)
-     */
     active() {
         if (this.state === EModuleState.UNMOUNTED) {
             this.state = EModuleState.INIT;
         }
         Renderer.add(this);
     }
-    /**
-     * 挂载到document
-     */
     mount() {
         var _a, _b, _c, _d;
-        //不是主模块或srcDom.node没有父element，则不执行挂载
         if (this !== ModuleFactory.getMain() && !((_b = (_a = this.srcDom) === null || _a === void 0 ? void 0 : _a.node) === null || _b === void 0 ? void 0 : _b.parentElement)) {
             return;
         }
-        //执行挂载前事件
         this.doModuleEvent('onBeforeMount');
-        //渲染到fragment
         const rootEl = new DocumentFragment();
         const el = Renderer.renderToHtml(this, this.domManager.renderedTree, rootEl);
-        //主模块，直接添加到根模块
         if (this === ModuleFactory.getMain()) {
             Renderer.getRootEl().appendChild(el);
         }
-        else if ((_d = (_c = this.srcDom) === null || _c === void 0 ? void 0 : _c.node) === null || _d === void 0 ? void 0 : _d.parentElement) { //挂载到父模块中
+        else if ((_d = (_c = this.srcDom) === null || _c === void 0 ? void 0 : _c.node) === null || _d === void 0 ? void 0 : _d.parentElement) {
             Util.insertAfter(el, this.srcDom.node);
         }
-        //执行挂载后事件
         this.doModuleEvent('onMount');
         this.state = EModuleState.MOUNTED;
     }
-    /**
-     * 从document移除
-     * @param passive -     被动卸载，父模块释放或模块被删除时导致的卸载，此时不再保留srcDom.node，状态修改INIT，否则修改为UNMOUNTED
-     */
     unmount(passive) {
         var _a;
-        // 主模块或状态为unmounted的模块不用处理
         if (this.state !== EModuleState.MOUNTED || ModuleFactory.getMain() === this) {
             return;
         }
-        //从render列表移除
         Renderer.remove(this);
-        //执行卸载前事件
         this.doModuleEvent('onBeforeUnMount');
-        //清空event factory
         this.eventFactory.clear();
-        //删除渲染树
         this.domManager.renderedTree = null;
-        //设置状态，如果为被动卸载，则设置为init，否则设置为unmounted
         if (passive) {
             this.state = EModuleState.INIT;
         }
         else {
             this.state = EModuleState.UNMOUNTED;
         }
-        //子模块被动卸载
         for (const m of this.children) {
             m.unmount(true);
         }
-        //从html dom树摘除
         if ((_a = this.srcDom.node) === null || _a === void 0 ? void 0 : _a.parentElement) {
-            //后节点不为comment，则为模块节点
             if (this.srcDom.node.nextSibling && !(this.srcDom.node.nextSibling instanceof Comment)) {
                 this.srcDom.node.parentElement.removeChild(this.srcDom.node.nextSibling);
             }
-            //如果是被动卸载，表示为父模块发起，则删除占位符
             if (passive) {
                 this.srcDom.node.parentElement.removeChild(this.srcDom.node);
             }
         }
-        //执行卸载后事件
         this.doModuleEvent('onUnMount');
     }
-    /**
-     * 销毁
-     */
     destroy() {
         var _a, _b, _c;
         Renderer.remove(this);
@@ -5504,17 +5340,10 @@ class Module {
         }
         this.domManager.renderedTree = null;
         this.clearCompositionCleanups();
-        //清理css url
         CssManager.clearModuleRules(this);
-        //清除dom参数
         this.objectManager.clearAllDomParams();
-        //从modulefactory移除
         ModuleFactory.remove(this.id);
     }
-    /**
-     * capture setup state for hot reload
-     * @returns serializable snapshot
-     */
     captureSetupState() {
         const snapshot = {};
         if (!this.setupState) {
@@ -5537,10 +5366,6 @@ class Module {
         }
         return snapshot;
     }
-    /**
-     * capture recursive hot snapshot
-     * @returns hot snapshot tree
-     */
     captureHotSnapshot() {
         return {
             children: this.children.map(item => item.captureHotSnapshot()),
@@ -5548,10 +5373,6 @@ class Module {
             state: this.captureSetupState()
         };
     }
-    /**
-     * apply recursive hot snapshot
-     * @param snapshot - hot snapshot tree
-     */
     applyHotSnapshot(snapshot) {
         if (!snapshot || snapshot.hotId !== this.getHotId()) {
             return;
@@ -5571,46 +5392,32 @@ class Module {
             }
         }
     }
-    /**
-     * 获取父模块
-     * @returns     父模块
-     */
     getParent() {
         if (this.parentId) {
             return ModuleFactory.get(this.parentId);
         }
     }
-    /**
-     * 执行模块事件
-     * @param eventName -   事件名
-     * @returns             执行结果
-     */
     doModuleEvent(eventName) {
         const foo = this[eventName];
+        let result;
         if (foo && typeof foo === 'function') {
-            return foo.apply(this, [this.model]);
+            result = foo.apply(this, [this.model]);
         }
+        this.runCompositionHooks(eventName);
+        return result;
     }
-    /**
-     * 设置props
-     * @param props -   属性值
-     * @param dom -     子模块对应渲染后节点
-     */
     setProps(props, dom) {
         if (!props) {
             return;
         }
         const dataObj = props['$data'];
         delete props['$data'];
-        //props数据复制到模块model
         if (dataObj) {
             for (const d of Object.keys(dataObj)) {
                 this.model[d] = dataObj[d];
             }
         }
-        //保留src dom
         this.srcDom = dom;
-        //如果不存在旧的props，则change为true，否则初始化为false
         let change = false;
         if (!this.props) {
             change = true;
@@ -5622,30 +5429,21 @@ class Module {
                 }
             }
         }
-        //对于 MOUNTED 状态进行渲染
         if (change && this.state === EModuleState.MOUNTED) {
             Renderer.add(this);
         }
-        //保存props
         this.props = props;
     }
-    /**
-     * 编译
-     * 出现编译，表示
-     */
     compile(templateStr) {
         var _a;
         this.children = [];
-        //清理css url
         CssManager.clearModuleRules(this);
-        //清除dom参数
         this.objectManager.clearAllDomParams();
         this.eventFactory.clear();
         this.domManager.vdomTree = new Compiler(this).compile(templateStr);
         if (!this.domManager.vdomTree) {
             return;
         }
-        //添加从源dom传递的事件
         const root = this.domManager.vdomTree;
         if ((_a = this.srcDom) === null || _a === void 0 ? void 0 : _a.events) {
             if (root.events) {
@@ -5655,40 +5453,11 @@ class Module {
                 root.events = this.srcDom.events;
             }
         }
-        //增加编译后事件
         this.doModuleEvent('onCompile');
     }
-    /**
-     * 设置不渲染到根dom的属性集合
-     * @param props -   待移除的属性名属组
-     */
     setExcludeProps(props) {
         this.excludedProps = props;
     }
-    /**
-     * 按模块类名获取子模块
-     * @remarks
-     * 找到第一个满足条件的子模块，如果deep=true，则深度优先
-     *
-     * 如果attrs不为空，则同时需要匹配子模块属性
-     *
-     * @example
-     * ```html
-     *  <div>
-     *      <Module1 />
-     *      <!--other code-->
-     *      <Module1 v1='a' v2='b' />
-     *  </div>
-     * ```
-     * ```js
-     *  const m = getModule('Module1',{v1:'a'},true);
-     *  m 为模板中的第二个Module1
-     * ```
-     * @param name -    子模块类名或别名
-     * @param attrs -   属性集合
-     * @param deep -    是否深度获取
-     * @returns         符合条件的子模块或undefined
-     */
     getModule(name, attrs, deep) {
         if (!this.children) {
             return;
@@ -5698,16 +5467,10 @@ class Module {
             return;
         }
         return find(this);
-        /**
-         * 查询
-         * @param mdl -   模块
-         * @returns     符合条件的子模块
-         */
         function find(mdl) {
             for (const m of mdl.children) {
                 if (m.constructor === cls) {
-                    if (attrs) { //属性集合不为空
-                        //全匹配标识
+                    if (attrs) {
                         let matched = true;
                         for (const k of Object.keys(attrs)) {
                             if (!m.props || m.props[k] !== attrs[k]) {
@@ -5723,7 +5486,6 @@ class Module {
                         return m;
                     }
                 }
-                //递归查找
                 if (deep) {
                     const r = find(m);
                     if (r) {
@@ -5733,11 +5495,6 @@ class Module {
             }
         }
     }
-    /**
-     * 获取模块类名对应的所有子模块
-     * @param className -   子模块类名
-     * @param deep -        深度查询
-     */
     getModules(className, attrs, deep) {
         if (!this.children) {
             return;
@@ -5745,17 +5502,12 @@ class Module {
         const arr = [];
         find(this);
         return arr;
-        /**
-         * 查询
-         * @param module -  模块
-         */
         function find(module) {
             if (!module.children) {
                 return;
             }
             for (const m of module.children) {
-                if (attrs) { //属性集合不为空
-                    //全匹配标识
+                if (attrs) {
                     let matched = true;
                     for (const k of Object.keys(attrs)) {
                         if (!m.props || m.props[k] !== attrs[k]) {
@@ -5770,50 +5522,24 @@ class Module {
                 else {
                     arr.push(m);
                 }
-                //递归查找
                 if (deep) {
                     find(m);
                 }
             }
         }
     }
-    /**
-     * 监听model
-     * @remarks
-     * 参数个数可变，分为几种情况
-     * 1 如果第一个参数为object，则表示为被监听的model：
-     *      如果第二个为字符串或数组，则表示被监听的属性或属性数组，第三个为钩子函数
-     *      如果第二个为函数，则表示钩子，表示深度监听
-     * 2 如果第一个参数为属性名，即字符串或字符串数组，则第二个参数为钩子函数，此时监听对象为this.model
-     * 3 如果第一个为function，则表示深度监听，此时监听对象为this.model
-     * 注：当不指定监听属性时，则统一表示为深度监听，深度监听会影响渲染性能，不建议使用
-     *
-     * @param model -   模型或属性或钩子函数
-     * @param key -     属性/属性数组/监听函数
-     * @param func -    钩子函数
-     * @returns         回收监听器函数，执行后取消监听
-     */
     watch(model, key, func) {
         const tp = typeof model;
-        if (tp === 'string' || Array.isArray(model)) { //字符串或数组
+        if (tp === 'string' || Array.isArray(model)) {
             return Watcher.watch(this, this.model, model, key);
         }
-        else if (tp === 'object') { // 数据对象
+        else if (tp === 'object') {
             return Watcher.watch(this, model, key, func);
         }
-        else if (tp === 'function') { // 钩子函数
+        else if (tp === 'function') {
             return Watcher.watch(this, this.model, model);
         }
     }
-    /**
-     * 设置模型属性值
-     * @remarks
-     * 参数个数可变，如果第一个参数为属性名，则第二个参数为属性值，默认model为根模型，否则按照参数说明
-     *
-     * @param model -     模型
-     * @param key -       子属性，可以分级，如 name.firstName
-     * @param value -     属性值
-     */
     set(model, key, value) {
         if (typeof model === 'object') {
             ModelManager.set(model, key, value);
@@ -5822,15 +5548,6 @@ class Module {
             ModelManager.set(this.model, model, key);
         }
     }
-    /**
-     * 获取模型属性值
-     * @remarks
-     * 参数个数可变，如果第一个参数为属性名，默认model为根模型，否则按照参数说明
-     *
-     * @param model -   模型
-     * @param key -     属性名，可以分级，如 name.firstName，如果为null，则返回自己
-     * @returns         属性值
-     */
     get(model, key) {
         if (typeof model === 'object') {
             return ModelManager.get(model, key);
@@ -5839,47 +5556,54 @@ class Module {
             return ModelManager.get(this.model, model);
         }
     }
-    /**
-     * 调用模块方法
-     * @param methodName -  方法名
-     * @param args -        参数
-     */
     invokeMethod(methodName, ...args) {
         if (typeof this[methodName] === 'function') {
             return this[methodName](...args);
         }
     }
-    /**
-     * 根据条件获取渲染节点
-     * @param params -  条件，dom key 或 props键值对
-     * @returns         渲染节点
-     */
     getRenderedDom(params) {
         return this.domManager.getRenderedDom(params);
     }
-    /**
-     * 根据条件获取html节点
-     * @param params -  条件，dom key 或 props键值对
-     * @returns         html node
-     */
     getNode(params) {
         var _a;
         return (_a = this.domManager.getRenderedDom(params)) === null || _a === void 0 ? void 0 : _a.node;
     }
-    /**
-     * register a composition cleanup callback
-     * @param cleanup - cleanup callback
-     */
+    addCompositionHook(name, hook) {
+        if (typeof hook !== 'function') {
+            return;
+        }
+        const hooks = this.compositionHooks.get(name) || [];
+        hooks.push(hook);
+        this.compositionHooks.set(name, hooks);
+    }
+    provide(key, value) {
+        this.provides || (this.provides = new Map());
+        this.provides.set(key, value);
+    }
+    inject(key, defaultValue) {
+        var _a, _b, _c;
+        if ((_a = this.provides) === null || _a === void 0 ? void 0 : _a.has(key)) {
+            return this.provides.get(key);
+        }
+        let parent = this.getParent();
+        while (parent) {
+            if ((_b = parent.provides) === null || _b === void 0 ? void 0 : _b.has(key)) {
+                return parent.provides.get(key);
+            }
+            parent = parent.getParent();
+        }
+        if ((_c = this.appContext) === null || _c === void 0 ? void 0 : _c.provides.has(key)) {
+            return this.appContext.provides.get(key);
+        }
+        return defaultValue;
+    }
     addCompositionCleanup(cleanup) {
         if (typeof cleanup === 'function') {
             this.compositionCleanups.push(cleanup);
         }
     }
-    /**
-     * initialize setup result
-     */
     initSetupState() {
-        const result = withCurrentModule(this, () => this.setup());
+        const result = withCurrentScope(this, () => this.setup());
         if (!result || typeof result !== 'object') {
             return;
         }
@@ -5895,9 +5619,28 @@ class Module {
         }
         this.restoreSetupState();
     }
-    /**
-     * run and clear composition cleanups
-     */
+    applyGlobalProperties() {
+        var _a;
+        const globalProperties = (_a = this.appContext) === null || _a === void 0 ? void 0 : _a.config.globalProperties;
+        if (!globalProperties) {
+            return;
+        }
+        for (const key of Object.keys(globalProperties)) {
+            if (key in this) {
+                continue;
+            }
+            this[key] = globalProperties[key];
+        }
+    }
+    runCompositionHooks(eventName) {
+        const hooks = this.compositionHooks.get(eventName);
+        if (!hooks || hooks.length === 0) {
+            return;
+        }
+        for (const hook of hooks) {
+            hook.apply(this, [this.model]);
+        }
+    }
     clearCompositionCleanups() {
         if (this.compositionCleanups.length === 0) {
             return;
@@ -5906,9 +5649,6 @@ class Module {
             cleanup();
         }
     }
-    /**
-     * restore setup state from hot payload if present
-     */
     restoreSetupState() {
         const ctor = this.constructor;
         const hotState = ctor['__nodomHotState'];
@@ -5918,10 +5658,6 @@ class Module {
         this.applySetupState(hotState);
         delete ctor['__nodomHotState'];
     }
-    /**
-     * apply setup-level state snapshot
-     * @param hotState - state snapshot
-     */
     applySetupState(hotState) {
         if (!hotState || !this.setupState) {
             return;
@@ -5943,10 +5679,6 @@ class Module {
             }
         }
     }
-    /**
-     * get stable hot identity
-     * @returns hot id
-     */
     getHotId() {
         const hotId = this['__ndFile']
             || this.constructor['__ndFile']
@@ -7123,5 +6855,5 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
     }, 5);
 }());
 
-export { Compiler, CssManager, DefineElement, DefineElementManager, DiffTool, Directive, DirectiveManager, DirectiveType, EModuleState, EventFactory, Expression, GlobalCache, Model, ModelManager, Module, ModuleFactory, NCache, NError, NEvent, Nodom, NodomMessage, NodomMessage_en, NodomMessage_zh, Renderer, Route, Router, Scheduler, Util, VirtualDom, bindStateHost, cloneStateValue, computed, isComputed, isReactive, isRef, reactive, ref, removeReactiveOwner, shouldSkipModelProxy, toRaw, toValue, track, trigger, unbindStateHost, unref, unwrapState, useComputed, useModel, useModule, useReactive, useRef, useState, useWatch, useWatchEffect, watch, watchEffect, withCurrentModule };
+export { App, Compiler, CssManager, DefineElement, DefineElementManager, DiffTool, Directive, DirectiveManager, DirectiveType, EModuleState, EventFactory, Expression, GlobalCache, Model, ModelManager, Module, ModuleFactory, NCache, NError, NEvent, Nodom, NodomMessage, NodomMessage_en, NodomMessage_zh, Renderer, Route, Router, Scheduler, Util, VirtualDom, bindStateHost, cloneStateValue, computed, configureReactivityRuntime, createApp, createAppContext, defineProps, getCurrentScope, inject, installPlugin, isComputed, isReactive, isRef, nextTick, onBeforeMount, onBeforeRender, onBeforeUnmount, onBeforeUpdate, onInit, onMounted, onRender, onUnmounted, onUpdated, provide, reactive, ref, removeReactiveOwner, shouldSkipModelProxy, toRaw, toValue, track, trigger, unbindStateHost, unref, unwrapState, useApp, useAttrs, useComputed, useInject, useModel, useModule, useProps, useReactive, useRef, useRoute, useRouter, useSlots, useState, useWatch, useWatchEffect, watch, watchEffect, withCurrentScope, withDefaults };
 //# sourceMappingURL=nodom.esm.js.map

@@ -34,7 +34,8 @@ const registryPkg = JSON.parse(await fs.readFile(path.join(registryDir, "package
 assert.equal(registryPkg.devDependencies["@nodomx/rollup-plugin-dev-server"], "^0.1.0");
 assert.equal(registryPkg.devDependencies["@nodomx/rollup-plugin-nd"], "^0.1.0");
 assert.equal(registryPkg.devDependencies["@nodomx/nd-compiler"], "^0.1.0");
-assert.equal(registryPkg.dependencies["@nodomx/core"], "^0.2.3");
+assert.equal(registryPkg.dependencies["@nodomx/reactivity"], "^0.2.3");
+assert.equal(registryPkg.dependencies["@nodomx/runtime-core"], "^0.2.3");
 assert.equal(registryPkg.dependencies.nodomx, "^0.2.3");
 
 console.log("create-nodomx smoke test passed");

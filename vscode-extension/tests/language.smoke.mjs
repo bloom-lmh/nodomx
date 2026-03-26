@@ -53,4 +53,32 @@ const invalidDocument = TextDocument.create("file:///Broken.nd", "nd", 1, source
 const invalidAnalysis = analyzeNdDocument(invalidDocument);
 assert.ok(invalidAnalysis.diagnostics.some(item => /Unknown template symbol/.test(item.message)));
 
+const setupSource = `
+<template>
+  <div class="counter">
+    <p>{{count}}</p>
+    <button e-click="add">+1</button>
+  </div>
+</template>
+
+<script setup>
+import { useState } from "nodomx";
+
+defineOptions({
+  modules: []
+});
+
+const count = useState(1);
+const add = () => {
+  count.value++;
+};
+</script>
+`;
+
+const setupDocument = TextDocument.create("file:///SetupCounter.nd", "nd", 1, setupSource);
+const setupAnalysis = analyzeNdDocument(setupDocument);
+assert.equal(setupAnalysis.diagnostics.length, 0);
+assert.ok(setupAnalysis.scriptAnalysis.exposedSymbols.has("count"));
+assert.ok(setupAnalysis.scriptAnalysis.exposedSymbols.has("add"));
+
 console.log("language service smoke test passed");

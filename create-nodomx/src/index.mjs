@@ -25,7 +25,8 @@ export async function createProject(targetDir, options = {}) {
         "__DEV_SERVER_SPEC__": packageSpecs.devServer,
         "__ND_COMPILER_SPEC__": packageSpecs.ndCompiler,
         "__ND_PLUGIN_SPEC__": packageSpecs.ndPlugin,
-        "__NODOM_CORE_SPEC__": packageSpecs.nodomCore,
+        "__NODOM_REACTIVITY_SPEC__": packageSpecs.nodomReactivity,
+        "__NODOM_RUNTIME_CORE_SPEC__": packageSpecs.nodomRuntimeCore,
         "__NODOM_SPEC__": packageSpecs.nodom,
         "__PROJECT_NAME__": sanitizePackageName(projectName)
     });
@@ -130,7 +131,8 @@ function resolvePackageSpecs(mode, repoRootOption, registryVersion) {
             devServer: `file:${slash(path.join(repoRoot, "rollup-plugin-dev-server"))}`,
             ndCompiler: `file:${slash(path.join(repoRoot, "nd-compiler"))}`,
             ndPlugin: `file:${slash(path.join(repoRoot, "rollup-plugin-nd"))}`,
-            nodomCore: `file:${slash(path.join(repoRoot, "nodomx", "packages", "core"))}`,
+            nodomReactivity: `file:${slash(path.join(repoRoot, "nodomx", "packages", "reactivity"))}`,
+            nodomRuntimeCore: `file:${slash(path.join(repoRoot, "nodomx", "packages", "runtime-core"))}`,
             nodom: `file:${slash(path.join(repoRoot, "nodomx"))}`
         };
     }
@@ -140,7 +142,8 @@ function resolvePackageSpecs(mode, repoRootOption, registryVersion) {
         devServer: versionRange,
         ndCompiler: versionRange,
         ndPlugin: versionRange,
-        nodomCore: "^0.2.3",
+        nodomReactivity: "^0.2.3",
+        nodomRuntimeCore: "^0.2.3",
         nodom: "^0.2.3"
     };
 }

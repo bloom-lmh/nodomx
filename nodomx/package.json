@@ -46,7 +46,8 @@
   "homepage": "https://gitee.com/bloom_lmh/nodomx",
   "description": "NodomX MVVM framework for building SPA applications.",
   "dependencies": {
-    "@nodomx/core": "^0.2.3"
+    "@nodomx/reactivity": "^0.2.3",
+    "@nodomx/runtime-core": "^0.2.3"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.2",

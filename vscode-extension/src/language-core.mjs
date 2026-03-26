@@ -29,6 +29,13 @@ export const ND_BLOCK_COMPLETIONS = [
         detail: "Component logic block"
     },
     {
+        label: "script setup",
+        kind: "block",
+        insertText: "<script setup>\nimport { useState } from \"nodomx\";\n\nconst count = useState(0);\n</script>",
+        insertTextFormat: "snippet",
+        detail: "Composition sugar block"
+    },
+    {
         label: "style",
         kind: "block",
         insertText: "<style>\n$0\n</style>",
@@ -71,7 +78,23 @@ export const ND_SCRIPT_COMPLETIONS = [
     { label: "useReactive", kind: "api", detail: "Create a reactive object" },
     { label: "useComputed", kind: "api", detail: "Create a computed state" },
     { label: "useWatch", kind: "api", detail: "Watch a source and react to changes" },
-    { label: "useWatchEffect", kind: "api", detail: "Run an effect with auto dependency tracking" }
+    { label: "useWatchEffect", kind: "api", detail: "Run an effect with auto dependency tracking" },
+    { label: "defineProps", kind: "api", detail: "Read current component props inside script setup" },
+    { label: "defineOptions", kind: "api", detail: "Declare component options inside script setup" },
+    { label: "withDefaults", kind: "api", detail: "Apply defaults to props returned by defineProps" },
+    { label: "provide", kind: "api", detail: "Provide a dependency for descendant modules" },
+    { label: "inject", kind: "api", detail: "Inject a dependency from an ancestor or app context" },
+    { label: "useApp", kind: "api", detail: "Access the current app instance inside setup" },
+    { label: "useRoute", kind: "api", detail: "Read the current route payload from the module model" },
+    { label: "useRouter", kind: "api", detail: "Access the active router plugin instance" },
+    { label: "onInit", kind: "api", detail: "Register a setup initialization hook" },
+    { label: "onBeforeMount", kind: "api", detail: "Register a before-mount hook" },
+    { label: "onMounted", kind: "api", detail: "Register a composition lifecycle hook" },
+    { label: "onBeforeUpdate", kind: "api", detail: "Register a before-update hook" },
+    { label: "onUpdated", kind: "api", detail: "Register an update lifecycle hook" },
+    { label: "onBeforeUnmount", kind: "api", detail: "Register a before-unmount hook" },
+    { label: "onUnmounted", kind: "api", detail: "Register an unmount lifecycle hook" },
+    { label: "nextTick", kind: "api", detail: "Flush pending renders in the next microtask" }
 ];
 
 export function analyzeNdDocument(document) {
@@ -162,6 +185,7 @@ export function parseNdDocument(text, uri = "anonymous.nd") {
             contentStart,
             end,
             scoped: type === "style" && /\bscoped\b/i.test(attrs),
+            setup: type === "script" && /\bsetup\b/i.test(attrs),
             start,
             type
         };
@@ -189,7 +213,7 @@ export function parseNdDocument(text, uri = "anonymous.nd") {
         descriptor.errors.push(errorForRange(text, 0, 0, "Missing <template> block.", "error"));
     }
 
-    if (descriptor.script && !/\bexport\s+default\b/.test(descriptor.script.content)) {
+    if (descriptor.script && !descriptor.script.setup && !/\bexport\s+default\b/.test(descriptor.script.content)) {
         descriptor.errors.push(errorForRange(text, descriptor.script.start, descriptor.script.end, "The <script> block must contain `export default { ... }`.", "error"));
     }
 
@@ -197,6 +221,9 @@ export function parseNdDocument(text, uri = "anonymous.nd") {
 }
 
 function analyzeScriptBlock(document, scriptBlock) {
+    if (scriptBlock.setup) {
+        return analyzeScriptSetupBlock(document, scriptBlock);
+    }
     const content = scriptBlock.content;
     const contentStart = scriptBlock.contentStart;
     const setupBodyRange = findFunctionBody(content, /\bsetup\s*\([^)]*\)\s*\{/g);
@@ -212,6 +239,23 @@ function analyzeScriptBlock(document, scriptBlock) {
     return {
         declarations,
         exposedSymbols
+    };
+}
+
+function analyzeScriptSetupBlock(document, scriptBlock) {
+    const declarations = new Map();
+    const statements = splitTopLevelStatements(scriptBlock.content);
+    let offset = scriptBlock.contentStart;
+    for (const statement of statements) {
+        const localDeclarations = extractDeclarations(document, statement, offset);
+        for (const [name, declaration] of localDeclarations.entries()) {
+            declarations.set(name, declaration);
+        }
+        offset += statement.length;
+    }
+    return {
+        declarations,
+        exposedSymbols: declarations
     };
 }
 
@@ -554,6 +598,71 @@ function findMatchingBrace(source, openIndex) {
     }
 
     return -1;
+}
+
+function splitTopLevelStatements(source) {
+    const statements = [];
+    let start = 0;
+    let depth = 0;
+    let quote = null;
+
+    for (let index = 0; index < source.length; index++) {
+        const char = source[index];
+        const next = source[index + 1];
+
+        if (quote) {
+            if (char === "\\" && next) {
+                index += 1;
+                continue;
+            }
+            if (char === quote) {
+                quote = null;
+            }
+            continue;
+        }
+
+        if (char === "\"" || char === "'" || char === "`") {
+            quote = char;
+            continue;
+        }
+
+        if (char === "/" && next === "/") {
+            index = source.indexOf("\n", index);
+            if (index < 0) {
+                break;
+            }
+            continue;
+        }
+
+        if (char === "/" && next === "*") {
+            const commentEnd = source.indexOf("*/", index + 2);
+            if (commentEnd < 0) {
+                break;
+            }
+            index = commentEnd + 1;
+            continue;
+        }
+
+        if (char === "{" || char === "[" || char === "(") {
+            depth += 1;
+            continue;
+        }
+
+        if (char === "}" || char === "]" || char === ")") {
+            depth -= 1;
+            continue;
+        }
+
+        if (char === ";" && depth === 0) {
+            statements.push(source.slice(start, index + 1));
+            start = index + 1;
+        }
+    }
+
+    if (start < source.length) {
+        statements.push(source.slice(start));
+    }
+    return statements;
 }
 
 function errorForRange(text, start, end, message, severity) {

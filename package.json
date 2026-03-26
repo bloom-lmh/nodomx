@@ -2,6 +2,8 @@
   "name": "nodomx-workspace",
   "private": true,
   "workspaces": [
+    "nodomx/packages/reactivity",
+    "nodomx/packages/runtime-core",
     "nodomx/packages/core",
     "nodomx",
     "nd-compiler",
@@ -11,7 +13,9 @@
     "vscode-extension"
   ],
   "scripts": {
-    "build": "npm run build:core && npm run build -w nodomx",
+    "build": "npm run build:reactivity && npm run build:runtime-core && npm run build:core && npm run build -w nodomx",
+    "build:reactivity": "npm run build -w @nodomx/reactivity",
+    "build:runtime-core": "npm run build -w @nodomx/runtime-core",
     "build:core": "npm run build -w @nodomx/core",
     "build:nd": "npm run build -w @nodomx/nd-compiler",
     "build:nd:rollup": "npm run build -w @nodomx/rollup-plugin-nd",
@@ -22,7 +26,9 @@
     "watch": "npm run watch -w nodomx",
     "watch:nd": "node ./nd-compiler/bin/ndc.mjs ./nodomx/examples --watch",
     "compile:nd": "node ./nd-compiler/bin/ndc.mjs",
-    "test": "npm run test:core && npm run test -w nodomx",
+    "test": "npm run test:reactivity && npm run test:runtime-core && npm run test:core && npm run test -w nodomx",
+    "test:reactivity": "npm run test -w @nodomx/reactivity",
+    "test:runtime-core": "npm run test -w @nodomx/runtime-core",
     "test:core": "npm run test -w @nodomx/core",
     "test:smoke": "npm run test:smoke -w nodomx",
     "test:composition": "npm run test:composition -w nodomx",
@@ -33,6 +39,8 @@
     "test:create": "npm run test -w create-nodomx",
     "test:vscode": "npm run test -w nodomx-nd-vscode",
     "test:all": "npm run test && npm run test:nd && npm run test:nd:rollup && npm run test:dev-server && npm run test:create && npm run test:vscode",
+    "pack:reactivity": "npm pack -w @nodomx/reactivity",
+    "pack:runtime-core": "npm pack -w @nodomx/runtime-core",
     "pack:core": "npm pack -w @nodomx/core",
     "pack:nodomx": "npm pack -w nodomx",
     "pack:nd": "npm pack -w @nodomx/nd-compiler",
@@ -42,7 +50,7 @@
     "release:preflight": "node ./scripts/release/preflight.mjs",
     "release:version": "node ./scripts/release/version.mjs",
     "release:changelog": "node ./scripts/release/changelog.mjs",
-    "release:check": "npm run build:all && npm run test:all && npm run pack:core && npm run pack:nodomx && npm run pack:nd && npm run pack:nd:rollup && npm run pack:dev-server && npm run pack:create",
+    "release:check": "npm run build:all && npm run test:all && npm run pack:reactivity && npm run pack:runtime-core && npm run pack:core && npm run pack:nodomx && npm run pack:nd && npm run pack:nd:rollup && npm run pack:dev-server && npm run pack:create",
     "release:publish": "node ./scripts/release/publish.mjs",
     "package:extension": "npm run package -w nodomx-nd-vscode"
   }

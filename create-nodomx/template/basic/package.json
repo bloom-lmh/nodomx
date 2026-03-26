@@ -7,7 +7,8 @@
     "build": "rollup -c rollup.config.mjs"
   },
   "dependencies": {
-    "@nodomx/core": "__NODOM_CORE_SPEC__",
+    "@nodomx/reactivity": "__NODOM_REACTIVITY_SPEC__",
+    "@nodomx/runtime-core": "__NODOM_RUNTIME_CORE_SPEC__",
     "nodomx": "__NODOM_SPEC__"
   },
   "devDependencies": {

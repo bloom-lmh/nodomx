@@ -19,15 +19,13 @@ if (!bump) {
 
 const currentVersion = await getCurrentReleaseVersion();
 const nextVersion = incrementVersion(currentVersion, bump);
+const releasePackageNames = new Set(publishablePackages.map(item => item.name));
 
 for (const pkg of publishablePackages) {
     const file = resolveRepoPath(pkg.dir, "package.json");
     const json = await readJson(file);
     json.version = nextVersion;
-
-    if (pkg.name === "@nodomx/rollup-plugin-nd") {
-        json.dependencies["@nodomx/nd-compiler"] = `^${nextVersion}`;
-    }
+    syncDependencyVersions(json, nextVersion, releasePackageNames);
 
     if (!dryRun) {
         await writeJson(file, json);
@@ -51,5 +49,19 @@ function run(command, args) {
     }
     if (result.status !== 0) {
         process.exit(result.status || 1);
+    }
+}
+
+function syncDependencyVersions(pkg, version, releaseNames) {
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+        const deps = pkg[field];
+        if (!deps) {
+            continue;
+        }
+        for (const dependencyName of Object.keys(deps)) {
+            if (releaseNames.has(dependencyName)) {
+                deps[dependencyName] = `^${version}`;
+            }
+        }
     }
 }

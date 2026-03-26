@@ -8,6 +8,8 @@ import ts from "rollup-plugin-typescript2";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const coreEntry = path.join(__dirname, "packages", "core", "src", "index.ts");
+const reactivityEntry = path.join(__dirname, "packages", "reactivity", "src", "index.ts");
+const runtimeCoreEntry = path.join(__dirname, "packages", "runtime-core", "src", "index.ts");
 
 const commonOpt = {
 	name: "nodom",
@@ -56,6 +58,12 @@ function resolveLocalCore() {
 	return {
 		name: "resolve-local-nodomx-core",
 		resolveId(source) {
+			if (source === "@nodomx/reactivity") {
+				return reactivityEntry;
+			}
+			if (source === "@nodomx/runtime-core") {
+				return runtimeCoreEntry;
+			}
 			if (source === "@nodomx/core") {
 				return coreEntry;
 			}

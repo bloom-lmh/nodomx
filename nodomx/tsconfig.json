@@ -19,6 +19,12 @@
     "declaration": true,
     "declarationDir":"./dist/types",
     "paths": {
+      "@nodomx/reactivity": [
+        "./packages/reactivity/src/index.ts"
+      ],
+      "@nodomx/runtime-core": [
+        "./packages/runtime-core/src/index.ts"
+      ],
       "@nodomx/core": [
         "./packages/core/src/index.ts"
       ]

@@ -35,7 +35,9 @@ export function parseNd(source, options = {}) {
                 throw new Error(`Only one <script> block is allowed in ${descriptor.filename}.`);
             }
             descriptor.script = {
-                content: content.trim()
+                attrs,
+                content: content.trim(),
+                setup: /\bsetup\b/i.test(attrs)
             };
         } else if (tag === "style") {
             descriptor.styles.push({
@@ -59,7 +61,7 @@ export function compileNd(source, options = {}) {
     const className = options.className || createClassName(filename);
     const scopeId = options.scopeId || createScopeId(filename);
     const template = buildTemplate(descriptor, scopeId);
-    const scriptCode = buildScript(descriptor.script?.content || "");
+    const scriptCode = buildScript(descriptor.script);
 
     return [
         `import { Module, ModuleFactory as __nd_module_factory__ } from ${JSON.stringify(importSource)};`,
@@ -305,14 +307,173 @@ export async function inferImportSource(inputFile) {
     }
 }
 
-function buildScript(scriptContent) {
-    if (!scriptContent) {
+function buildScript(scriptBlock) {
+    if (!scriptBlock?.content) {
         return "const __nd_component__ = {};";
     }
-    if (!/\bexport\s+default\b/.test(scriptContent)) {
+    if (scriptBlock.setup) {
+        return buildScriptSetup(scriptBlock.content);
+    }
+    if (!/\bexport\s+default\b/.test(scriptBlock.content)) {
         throw new Error("The <script> block must contain `export default { ... }`.");
     }
-    return scriptContent.replace(/\bexport\s+default\b/, "const __nd_component__ =");
+    return scriptBlock.content.replace(/\bexport\s+default\b/, "const __nd_component__ =");
+}
+
+function buildScriptSetup(scriptContent) {
+    const { body, imports } = extractImportStatements(scriptContent);
+    const { body: setupBody, optionExpressions } = extractDefineOptions(body);
+    const bindings = extractTopLevelBindings(setupBody);
+    const parts = [];
+    if (imports.length > 0) {
+        parts.push(imports.join("\n"), "");
+    }
+    parts.push("const __nd_component__ = {");
+    for (const expression of optionExpressions) {
+        parts.push(`  ...(${expression}),`);
+    }
+    parts.push("  setup() {");
+    if (setupBody.trim()) {
+        parts.push(indentBlock(setupBody.trim(), 4), "");
+    }
+    if (bindings.length === 0) {
+        parts.push("    return {};");
+    } else {
+        parts.push("    return {");
+        for (let index = 0; index < bindings.length; index++) {
+            const suffix = index === bindings.length - 1 ? "" : ",";
+            parts.push(`      ${bindings[index]}${suffix}`);
+        }
+        parts.push("    };");
+    }
+    parts.push("  }", "};");
+    return parts.join("\n");
+}
+
+function extractDefineOptions(source) {
+    const optionExpressions = [];
+    const bodyStatements = [];
+    for (const statement of splitTopLevelStatements(source)) {
+        const trimmed = statement.trim();
+        if (!trimmed) {
+            continue;
+        }
+        const match = /^defineOptions\s*\(([\s\S]*)\)\s*;?$/.exec(trimmed);
+        if (match) {
+            optionExpressions.push(match[1].trim());
+            continue;
+        }
+        bodyStatements.push(trimmed);
+    }
+    return {
+        body: bodyStatements.join("\n\n"),
+        optionExpressions
+    };
+}
+
+function extractImportStatements(source) {
+    const statements = splitTopLevelStatements(source);
+    const imports = [];
+    const bodyStatements = [];
+    for (const statement of statements) {
+        if (/^\s*import\b/.test(statement)) {
+            imports.push(statement.trim());
+        } else if (statement.trim()) {
+            bodyStatements.push(statement.trim());
+        }
+    }
+    return {
+        body: bodyStatements.join("\n\n"),
+        imports
+    };
+}
+
+function extractTopLevelBindings(source) {
+    const names = [];
+    for (const statement of splitTopLevelStatements(source)) {
+        const trimmed = statement.trim();
+        if (!trimmed) {
+            continue;
+        }
+        const match = /^(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)\b/.exec(trimmed);
+        if (match && !names.includes(match[1])) {
+            names.push(match[1]);
+        }
+    }
+    return names;
+}
+
+function splitTopLevelStatements(source) {
+    const statements = [];
+    let start = 0;
+    let depth = 0;
+    let quote = null;
+
+    for (let index = 0; index < source.length; index++) {
+        const char = source[index];
+        const next = source[index + 1];
+
+        if (quote) {
+            if (char === "\\" && next) {
+                index += 1;
+                continue;
+            }
+            if (char === quote) {
+                quote = null;
+            }
+            continue;
+        }
+
+        if (char === "\"" || char === "'" || char === "`") {
+            quote = char;
+            continue;
+        }
+
+        if (char === "/" && next === "/") {
+            index = source.indexOf("\n", index);
+            if (index < 0) {
+                break;
+            }
+            continue;
+        }
+
+        if (char === "/" && next === "*") {
+            const commentEnd = source.indexOf("*/", index + 2);
+            if (commentEnd < 0) {
+                break;
+            }
+            index = commentEnd + 1;
+            continue;
+        }
+
+        if (char === "{" || char === "[" || char === "(") {
+            depth += 1;
+            continue;
+        }
+
+        if (char === "}" || char === "]" || char === ")") {
+            depth -= 1;
+            continue;
+        }
+
+        if (char === ";" && depth === 0) {
+            statements.push(source.slice(start, index + 1));
+            start = index + 1;
+        }
+    }
+
+    if (start < source.length) {
+        statements.push(source.slice(start));
+    }
+    return statements;
+}
+
+function indentBlock(source, spaces) {
+    const prefix = " ".repeat(spaces);
+    return source
+        .split(/\r?\n/)
+        .map(line => line ? prefix + line : line)
+        .join("\n");
 }
 
 function buildTemplate(descriptor, scopeId) {

@@ -46,6 +46,38 @@ export default {
 </style>
 `;
 
+const setupSugarSource = `
+<template>
+  <div class="counter">
+    <p>{{count}}</p>
+    <button e-click="add">add</button>
+  </div>
+</template>
+
+<script setup>
+import { useState } from "nodomx";
+
+const count = useState(1);
+const add = () => {
+  count.value++;
+};
+</script>
+`;
+
+const setupOptionsSource = `
+<template>
+  <ChildCounter />
+</template>
+
+<script setup>
+import ChildCounter from "./ChildCounter.nd";
+
+defineOptions({
+  modules: [ChildCounter]
+});
+</script>
+`;
+
 const descriptor = parseNd(source, { filename: "Counter.nd" });
 assert.equal(descriptor.styles.length, 1);
 assert.ok(descriptor.styles[0].scoped);
@@ -61,6 +93,23 @@ assert.match(code, /data-nd-scope=\\"nd-/);
 assert.match(code, /\[data-nd-scope=\\"nd-[a-f0-9]+\\"\] \.counter/);
 assert.match(code, /useState/);
 assert.match(code, /__nd_module_factory__\.addClass\(CounterComponent\)/);
+
+const setupSugarCode = compileNd(setupSugarSource, {
+    filename: "Counter.nd",
+    importSource: "nodomx"
+});
+assert.match(setupSugarCode, /setup\(\)/);
+assert.match(setupSugarCode, /const count = useState\(1\);/);
+assert.match(setupSugarCode, /return \{/);
+assert.match(setupSugarCode, /count/);
+assert.match(setupSugarCode, /add/);
+
+const setupOptionsCode = compileNd(setupOptionsSource, {
+    filename: "Parent.nd",
+    importSource: "nodomx"
+});
+assert.match(setupOptionsCode, /\.\.\.\(\{\s*modules: \[ChildCounter\]/);
+assert.match(setupOptionsCode, /setup\(\)/);
 
 const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nd-compiler-"));
 const inputFile = path.join(tmpDir, "Counter.nd");

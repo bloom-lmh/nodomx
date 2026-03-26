@@ -15,9 +15,18 @@
     "sourceMap": true,
     "moduleResolution": "node",
     "declaration": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@nodomx/reactivity": [
+        "../reactivity/src/index.ts"
+      ],
+      "@nodomx/runtime-core": [
+        "../runtime-core/src/index.ts"
+      ]
+    }
   },
   "include": [
-    "src/**/*.ts"
+    "src/index.ts"
   ]
 }
