@@ -129,6 +129,33 @@ npm run docs:build:vercel
 
 这个脚本会把 `DOCS_BASE` 固定成 `/`，适合 Vercel 根域名或自定义域名部署。
 
+后台可以直接按下面填写：
+
+| 项目字段 | 建议值 |
+| --- | --- |
+| Import Git Repository | `bloom-lmh/nodomx` |
+| Framework Preset | `Other` 或 `VitePress` |
+| Root Directory | `.` |
+| Install Command | `npm install` |
+| Build Command | `npm run docs:build:vercel` |
+| Output Directory | `docs/.vitepress/dist` |
+| Node.js Version | `20` |
+| Production Branch | `main` |
+
+推荐部署流程：
+
+1. 在 Vercel 中导入 GitHub 仓库 `bloom-lmh/nodomx`
+2. 保持根目录为仓库根，不要切到 `docs/`
+3. 首次部署完成后，先访问首页和 `/guide/tooling-deploy.html`
+4. 验站通过后，再绑定海外主域名，例如 `nodomx.dev`
+
+上线后核验：
+
+- 首页返回 `200`
+- `https://<your-domain>/guide/tooling-deploy.html` 返回 `200`
+- 刷新任意文档页不会出现静态资源 `404`
+- 静态资源路径以 `/assets/` 开头，而不是 `/nodomx/assets/`
+
 ### 帽子云
 
 帽子云这类静态托管平台，推荐和 Vercel 一样走“根路径静态站点”模式。
@@ -149,6 +176,43 @@ npm run docs:build:maoziyun
 ```
 
 这个脚本和 Vercel 一样，都会生成根路径站点。
+
+后台可以直接按下面填写：
+
+| 项目字段 | 建议值 |
+| --- | --- |
+| 仓库来源 | `GitHub` 或 `Gitee` |
+| 仓库/分支 | `bloom-lmh/nodomx` 的 `main` |
+| Root Directory | `.` |
+| Install Command | `npm install` |
+| Build Command | `npm run docs:build:maoziyun` |
+| Output Directory | `docs/.vitepress/dist` |
+| Node.js Version | `20` |
+| 部署方式 | `自动部署` |
+
+推荐部署流程：
+
+1. 在帽子云创建静态应用并授权 GitHub 或 Gitee 仓库
+2. 选择 `main` 分支
+3. 如果平台没有自动识别到正确构建命令，就手工填写上面的配置
+4. 首次构建通过后，先使用平台分配域名验站，再绑定国内域名并完成备案
+
+上线后核验：
+
+- 首页返回 `200`
+- `https://<your-cn-domain>/guide/tooling-deploy.html` 返回 `200`
+- 刷新任意文档页不会丢失样式和脚本
+- 选择了“自动部署”后，后续 `main` 更新能自动发布
+
+双站点推荐：
+
+| 场景 | 推荐平台 |
+| --- | --- |
+| 海外主站 | `Vercel` |
+| 国内镜像站 | `帽子云` |
+| 公开备用镜像 | `GitHub Pages` |
+
+这样可以把国外访问、国内访问和公开备份三条线路拆开。
 
 ### 自定义域名建议
 

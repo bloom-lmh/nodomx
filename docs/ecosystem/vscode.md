@@ -65,6 +65,19 @@ npm run publish:extension
 
 最直接的核验方式是访问上面的 `itemName` 直链，而不是只看 workflow 是否成功。
 
+如果你发现 workflow 里 `Publish VSCode extension` 是绿色，但市场页依然 `404`，按这个顺序排查：
+
+1. 确认仓库里真的配置了 `VSCE_PAT`
+2. 确认 `publisher` 和 Marketplace 后台创建的 publisher 一致
+3. 确认 `npm run publish:extension` 在本地能成功
+4. 再访问下面这个公开地址核验，而不是只看 Action：
+
+```text
+https://marketplace.visualstudio.com/items?itemName=bloom-lmh.nodomx-nd-vscode
+```
+
+如果这个地址还是 `404`，通常说明“发布步骤被 secret 缺失逻辑跳过了”或者“Marketplace 还没完成索引”。
+
 ## 推荐配置
 
 安装后建议打开这些设置：
@@ -80,5 +93,6 @@ npm run publish:extension
 - `VSCE_PAT` 已放进 GitHub Secrets
 - `npm run package:extension` 本地可通过
 - `Release` workflow 里 `Publish VSCode extension` 步骤没有走 skip 分支
+- 公开 `itemName` 链接已经能打开，而不是 `404`
 
 如果你希望同时上架 Open VSX，可以在后续再补 `OVSX_TOKEN` 和一条独立的发布流程。
