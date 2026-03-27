@@ -22,6 +22,7 @@ NodomX 是一个面向单页应用的 MVVM 前端框架。它保留了 Nodom 一
 - `../nd-compiler`: `.nd` 编译器与 CLI
 - `../rollup-plugin-nd`: Rollup 的 `.nd` 导入插件
 - `../rollup-plugin-dev-server`: 开发服务器与 HMR 运行时
+- `../vite-plugin-nodomx`: Vite 的 `.nd` 导入插件与 HMR 助手
 - `../create-nodomx`: 官方脚手架
 - `../vscode-extension`: VSCode 扩展与语言服务器
 
@@ -421,7 +422,28 @@ import App from "./App.nd";
 - 顶层 `setup()` 状态恢复
 - 组件子树重挂载，而不是整页刷新
 
-### 5. VSCode 扩展
+### 5. `vite-plugin-nodomx`
+
+如果你的项目基于 Vite，可以直接安装：
+
+```bash
+npm install -D vite vite-plugin-nodomx
+```
+
+然后在 `vite.config.ts` 里：
+
+```ts
+import { defineConfig } from "vite";
+import { nodomx } from "vite-plugin-nodomx";
+
+export default defineConfig({
+    plugins: [nodomx()]
+});
+```
+
+入口文件推荐配合 `vite-plugin-nodomx/runtime` 的 `bootstrapNodomxViteApp()` 一起使用。
+
+### 6. VSCode 扩展
 
 仓库里的 `../vscode-extension` 提供了：
 
@@ -439,6 +461,7 @@ import App from "./App.nd";
 - `./examples/nd-counter.nd`
 - `./examples/repeat.html`
 - `../create-nodomx/template/basic/src/App.nd`
+- `../docs`
 
 ## 本地开发
 

@@ -29,7 +29,7 @@ async function main() {
 
     let result;
     if (process.platform === "win32") {
-        const command = path.resolve(packageDir, "../../node_modules/.bin/vsce.cmd");
+        const command = resolveVsceBinary("vsce.cmd");
         result = spawnSync(
             `"${command}" package --allow-star-activation --out "${outputFile}"`,
             {
@@ -39,7 +39,7 @@ async function main() {
             }
         );
     } else {
-        const command = path.resolve(packageDir, "../../node_modules/.bin/vsce");
+        const command = resolveVsceBinary("vsce");
         result = spawnSync(
             command,
             ["package", "--allow-star-activation", "--out", outputFile],
@@ -59,6 +59,24 @@ async function main() {
     }
 
     console.log(`VSIX created at ${outputFile}`);
+}
+
+function resolveVsceBinary(binaryName) {
+    const candidates = [
+        path.join(packageDir, "node_modules", ".bin", binaryName),
+        path.join(packageDir, "..", "node_modules", ".bin", binaryName)
+    ];
+
+    for (const file of candidates) {
+        try {
+            require("node:fs").accessSync(file);
+            return file;
+        } catch {
+            continue;
+        }
+    }
+
+    throw new Error(`Unable to locate ${binaryName}. Expected it in ${candidates.join(" or ")}`);
 }
 
 function runBuild() {

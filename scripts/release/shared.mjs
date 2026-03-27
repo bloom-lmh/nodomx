@@ -72,6 +72,10 @@ export const publishablePackages = [
         name: "@nodomx/rollup-plugin-dev-server"
     },
     {
+        dir: "vite-plugin-nodomx",
+        name: "vite-plugin-nodomx"
+    },
+    {
         dir: "create-nodomx",
         name: "create-nodomx"
     }

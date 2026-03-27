@@ -5,3 +5,5 @@ node_modules/
 *.tgz
 vscode-extension/.vsix-stage/
 vscode-extension/dist/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
