@@ -1,6 +1,6 @@
-# `vite-plugin-nodomx`
+# Vite 插件
 
-`vite-plugin-nodomx` 让 Vite 可以直接导入 `.nd` 文件，同时保留 NodomX 的热更新能力。
+`vite-plugin-nodomx` 用来让 `.nd` 在 Vite 中直接工作。
 
 ## 安装
 
@@ -9,7 +9,9 @@ npm install nodomx
 npm install -D vite vite-plugin-nodomx
 ```
 
-## `vite.config.ts`
+## 基本配置
+
+`vite.config.ts`
 
 ```ts
 import { defineConfig } from "vite";
@@ -20,7 +22,9 @@ export default defineConfig({
 });
 ```
 
-## 入口文件
+## 入口示例
+
+`src/main.ts`
 
 ```ts
 import { Nodom } from "nodomx";
@@ -35,16 +39,8 @@ await bootstrapNodomxViteApp({
 });
 ```
 
-## 特性
-
-- 直接导入 `.nd`
-- scoped style 编译
-- `script setup` 编译
-- root-relative hot id，便于和 Vite 的 HMR 更新路径对齐
-- 配合 `Nodom.hotReload()` 做状态恢复
-
 ## 适用场景
 
-- 你已经在使用 Vite
-- 你想保留 Vite 生态但使用 `.nd`
-- 你希望和 Vite HMR 链路对齐
+- 希望用 Vite 开发 `.nd`
+- 希望获得更快的冷启动与更自然的前端工程体验
+- 希望把 NodomX 接入现有 Vite 技术栈

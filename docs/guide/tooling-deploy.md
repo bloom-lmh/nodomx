@@ -1,258 +1,94 @@
-# 工具链与部署
+# 工具与部署
 
-这一页讲的是“如何真正把 NodomX 用起来”，包括 `.nd`、语言服务器、脚手架、开发服务器、Vite、Rollup，以及官网如何部署到 GitHub Pages、Vercel 和帽子云。
+这套仓库现在支持三类使用方式：
 
-## 安装框架
-
-```bash
-npm install nodomx
-```
-
-如果你只是消费已经发布好的框架包，到这里就可以开始写模块或 `.nd` 文件了。
-
-## `.nd` 单文件组件
-
-如果你只想手工编译 `.nd`：
-
-```bash
-npm install -D @nodomx/nd-compiler
-```
-
-```bash
-ndc ./src/App.nd --out ./src/App.nd.gen.mjs
-```
-
-## Rollup 工程
-
-```bash
-npm install nodomx
-npm install -D @nodomx/rollup-plugin-nd @nodomx/rollup-plugin-dev-server
-```
-
-适合：
-
-- 直接使用官方脚手架模板
-- 想走更轻的官方开发体验
-- 想用官方 dev server 和 HMR
-
-## Vite 工程
-
-```bash
-npm install nodomx
-npm install -D vite vite-plugin-nodomx
-```
-
-## 脚手架
-
-```bash
-npm create nodomx@latest my-app
-cd my-app
-npm run dev
-```
-
-## VSCode 语言服务器
-
-当前扩展包名是 `nodomx-nd-vscode`。
-
-本地打包：
-
-```bash
-npm run package:extension
-```
-
-输出文件：
-
-```text
-vscode-extension/nodomx-nd-vscode-<version>.vsix
-```
-
-然后在 VSCode 中执行 `Extensions: Install from VSIX...` 安装。
-
-Marketplace 发布后的直链格式是：
-
-```text
-https://marketplace.visualstudio.com/items?itemName=bloom-lmh.nodomx-nd-vscode
-```
+- 只用 `nodomx` 写经典模块
+- 用 `.nd` + `script setup` 写现代组件
+- 围绕 Rollup、Vite、VSCode 和 CI 建完整工程链路
 
 ## 文档站本地开发
 
-本仓库 docs 已切到 VitePress：
+仓库根目录运行：
 
 ```bash
 npm run docs:dev
-npm run docs:build
-npm run docs:preview
 ```
 
-`docs` 目录本身现在也是一个独立的 VitePress 包，目录内自带 [package.json](/E:/dev_projects/nodomx/docs/package.json)。
-这意味着你也可以直接进入 `docs` 目录单独运行：
+如果你直接在 `docs` 目录工作：
 
 ```bash
 cd docs
 npm install
 npm run dev
+```
+
+## 文档站构建
+
+根目录：
+
+```bash
+npm run build:docs
+```
+
+或在 `docs` 目录：
+
+```bash
 npm run build
 ```
 
-## 官网部署
+当前 `build` 会先清掉 `.vitepress/.cache`、`.vitepress/.temp` 和 `dist`，避免部署时复用旧产物。
 
-NodomX 文档站现在支持三种部署模式：
+## Vercel 部署
 
-- GitHub Pages
-- Vercel
-- 帽子云
+推荐直接把 `docs` 作为独立项目根目录：
 
-三者共用同一套 VitePress 源码，区别只在构建时的 `base`。
+- Root Directory: `docs`
+- Install Command: `npm install`
+- Build Command: `npm run build`
+- Output Directory: `.vitepress/dist`
 
-### GitHub Pages
+仓库里已经提供了 `docs/vercel.json` 供 Vercel 读取。
 
-GitHub Pages 使用仓库子路径部署，已经接入自动 workflow。
+## GitHub Pages 部署
 
-关键点：
+仓库已经配置好 `.github/workflows/docs.yml`。
 
-- 分支：`main`
-- 构建命令：由 GitHub Actions 调用 [build-docs-pages.mjs](/E:/dev_projects/nodomx/scripts/release/build-docs-pages.mjs)
-- 站点基路径：`/nodomx/`
-- 输出目录：`docs/.vitepress/dist`
+要点只有两个：
 
-你平时只需要推送到 `main`，`Docs` workflow 会自动部署。
+1. GitHub Pages 的 Source 选择 `GitHub Actions`
+2. 推送 `main` 后，`Docs` workflow 成功即可自动部署
 
-### Vercel
+`build-docs-pages.mjs` 会为 GitHub Pages 自动设置正确的 `base`，因此无需再手工改 VitePress 基路径。
 
-仓库里已经提供了两套方式：
+## 帽子云部署
 
-- 根目录模式：[vercel.json](/E:/dev_projects/nodomx/vercel.json)
-- `docs` 独立站点模式：[docs/vercel.json](/E:/dev_projects/nodomx/docs/vercel.json)
+帽子云也可以直接把 `docs` 目录当作项目根目录，构建参数与 Vercel 保持一致：
 
-如果你的目标只是部署文档站，我更推荐直接把 Vercel 的 Root Directory 设成 `docs`。这样 Vercel 会把它当成一个标准 VitePress 站点来处理，链路更短，也更不容易被 monorepo 其它包干扰。
+- Root Directory: `docs`
+- Install Command: `npm install`
+- Build Command: `npm run build`
+- Output Directory: `.vitepress/dist`
 
-推荐项目设置：
+## 应用开发工具
 
-- Framework Preset：`Other` 或自动识别为 `VitePress`
-- Root Directory：`docs`
-- Install Command：`npm install`
-- Build Command：`npm run build`
-- Output Directory：`.vitepress/dist`
-- Production Branch：`main`
-- Node.js：建议 `20`
-
-仓库内对应脚本：
+### Rollup
 
 ```bash
-cd docs
-npm install
-npm run build
+npm install -D @nodomx/rollup-plugin-nd @nodomx/rollup-plugin-dev-server
 ```
 
-后台可以直接按下面填写：
-
-| 项目字段 | 建议值 |
-| --- | --- |
-| Import Git Repository | `bloom-lmh/nodomx` |
-| Framework Preset | `Other` 或 `VitePress` |
-| Root Directory | `docs` |
-| Install Command | `npm install` |
-| Build Command | `npm run build` |
-| Output Directory | `.vitepress/dist` |
-| Node.js Version | `20` |
-| Production Branch | `main` |
-
-推荐部署流程：
-
-1. 在 Vercel 中导入 GitHub 仓库 `bloom-lmh/nodomx`
-2. 把 Root Directory 设成 `docs`
-3. 首次部署完成后，先访问首页和 `/guide/tooling-deploy.html`
-4. 验站通过后，再绑定海外主域名，例如 `nodomx.dev`
-
-上线后核验：
-
-- 首页返回 `200`
-- `https://<your-domain>/guide/tooling-deploy.html` 返回 `200`
-- 刷新任意文档页不会出现静态资源 `404`
-- 静态资源路径以 `/assets/` 开头，而不是 `/nodomx/assets/`
-
-### 帽子云
-
-帽子云这类静态托管平台，推荐和 Vercel 一样走“根路径静态站点”模式。
-
-推荐项目设置：
-
-- 仓库来源：GitHub 或 Gitee 的 `main`
-- Root Directory：仓库根目录
-- Install Command：`npm install`
-- Build Command：`npm run docs:build:maoziyun`
-- Output Directory：`docs/.vitepress/dist`
-- Node.js：建议 `20`
-
-仓库内对应脚本：
+### Vite
 
 ```bash
-npm run docs:build:maoziyun
+npm install -D vite vite-plugin-nodomx
 ```
 
-这个脚本和 Vercel 一样，都会生成根路径站点。
-
-后台可以直接按下面填写：
-
-| 项目字段 | 建议值 |
-| --- | --- |
-| 仓库来源 | `GitHub` 或 `Gitee` |
-| 仓库/分支 | `bloom-lmh/nodomx` 的 `main` |
-| Root Directory | `.` |
-| Install Command | `npm install` |
-| Build Command | `npm run docs:build:maoziyun` |
-| Output Directory | `docs/.vitepress/dist` |
-| Node.js Version | `20` |
-| 部署方式 | `自动部署` |
-
-推荐部署流程：
-
-1. 在帽子云创建静态应用并授权 GitHub 或 Gitee 仓库
-2. 选择 `main` 分支
-3. 如果平台没有自动识别到正确构建命令，就手工填写上面的配置
-4. 首次构建通过后，先使用平台分配域名验站，再绑定国内域名并完成备案
-
-上线后核验：
-
-- 首页返回 `200`
-- `https://<your-cn-domain>/guide/tooling-deploy.html` 返回 `200`
-- 刷新任意文档页不会丢失样式和脚本
-- 选择了“自动部署”后，后续 `main` 更新能自动发布
-
-双站点推荐：
-
-| 场景 | 推荐平台 |
-| --- | --- |
-| 海外主站 | `Vercel` |
-| 国内镜像站 | `帽子云` |
-| 公开备用镜像 | `GitHub Pages` |
-
-这样可以把国外访问、国内访问和公开备份三条线路拆开。
-
-### 自定义域名建议
-
-- GitHub Pages：适合挂二级域名或项目子路径
-- Vercel：适合国外访问和自动 HTTPS
-- 帽子云：适合国内访问和备案场景
-
-如果你准备双部署，推荐：
-
-- 国外主站放 Vercel
-- 国内镜像站放帽子云
-- GitHub Pages 继续作为公开备用镜像
-
-## 发布前校验
+### 脚手架
 
 ```bash
-npm run release:check
+npm create nodomx@latest my-app
 ```
 
-这个命令会覆盖：
+### VSCode 扩展
 
-- monorepo build
-- monorepo test
-- npm pack 检查
-- docs 构建
-- Vite 插件
-- VSCode 扩展测试
-- VSCode 扩展打包
+安装 `nodomx-nd-vscode` 后，VSCode 会识别 `.nd` 并启用语言服务。

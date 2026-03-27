@@ -28,7 +28,7 @@ class HelloModule extends Module {
 Nodom.app(HelloModule, "#app");
 ```
 
-## 方式二：使用组合式写法
+## 方式二：使用组合式 API
 
 ```ts
 import { Module, Nodom, useComputed, useState } from "nodomx";
@@ -63,7 +63,7 @@ class CounterModule extends Module {
 Nodom.app(CounterModule, "#app");
 ```
 
-模板语法保持不变，只有状态组织方式变成了组合式。
+模板语法保持不变，只是状态组织方式变成了组合式。
 
 ## 方式三：直接使用 `.nd`
 
@@ -90,20 +90,16 @@ const inc = () => {
 
 ## 推荐的新项目方式
 
-新项目建议直接用脚手架：
-
 ```bash
 npm create nodomx@latest my-app
 cd my-app
 npm run dev
 ```
 
-## 常用安装组合
+## 常见安装组合
 
 - 只想用框架本体：`npm install nodomx`
 - 想单独编译 `.nd`：`npm install -D @nodomx/nd-compiler`
 - 想走 Rollup：`npm install -D @nodomx/rollup-plugin-nd @nodomx/rollup-plugin-dev-server`
 - 想走 Vite：`npm install -D vite vite-plugin-nodomx`
 - 想获得编辑器支持：安装 `nodomx-nd-vscode`
-
-如果你更偏向 Vite 体系，可以直接看 [Vite Plugin](/ecosystem/vite)。如果你想看官方开发服务器，直接看 [Dev Server](/ecosystem/dev-server)。
