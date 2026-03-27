@@ -8,7 +8,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bloom-lmh/nodomxjs-nodomx.git"
+    "url": "https://github.com/bloom-lmh/nodomx.git"
   },
   "files": [
     "dist",

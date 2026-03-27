@@ -87,7 +87,7 @@ export default {
             copyright: "Copyright (c) 2026 NodomX"
         },
         socialLinks: [
-            { icon: "github", link: "https://github.com/bloom-lmh/nodomxjs-nodomx" }
+            { icon: "github", link: "https://github.com/bloom-lmh/nodomx" }
         ]
     }
 };

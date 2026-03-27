@@ -36,7 +36,7 @@
   "types": "dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bloom-lmh/nodomxjs-nodomx.git",
+    "url": "https://github.com/bloom-lmh/nodomx.git",
     "directory": "nodomx"
   },
   "keywords": [
@@ -47,9 +47,9 @@
     "web"
   ],
   "bugs": {
-    "url": "https://github.com/bloom-lmh/nodomxjs-nodomx/issues"
+    "url": "https://github.com/bloom-lmh/nodomx/issues"
   },
-  "homepage": "https://github.com/bloom-lmh/nodomxjs-nodomx",
+  "homepage": "https://github.com/bloom-lmh/nodomx",
   "description": "NodomX MVVM framework for building SPA applications.",
   "dependencies": {
     "@nodomx/reactivity": "^0.2.3",

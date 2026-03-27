@@ -21,12 +21,12 @@
                       },
     "repository":  {
                        "type":  "git",
-                       "url":  "https://github.com/bloom-lmh/nodomxjs-nodomx.git",
+                       "url":  "https://github.com/bloom-lmh/nodomx.git",
                        "directory":  "nodomx/packages/runtime-registry"
                    },
-    "homepage":  "https://github.com/bloom-lmh/nodomxjs-nodomx",
+    "homepage":  "https://github.com/bloom-lmh/nodomx",
     "bugs":  {
-                 "url":  "https://github.com/bloom-lmh/nodomxjs-nodomx/issues"
+                 "url":  "https://github.com/bloom-lmh/nodomx/issues"
              },
     "keywords":  [
                      "nodomx",
