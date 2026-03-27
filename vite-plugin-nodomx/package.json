@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "vite-plugin-nodomx",
   "version": "0.1.0",
   "description": "Vite plugin for importing NodomX .nd single-file components.",

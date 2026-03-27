@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@nodomx/reactivity",
   "version": "0.2.3",
   "description": "Reactive primitives for the NodomX framework.",

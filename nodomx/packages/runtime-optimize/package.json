@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "@nodomx/runtime-optimize",
     "version":  "0.2.3",
     "description":  "Optimization helpers for NodomX runtime updates.",

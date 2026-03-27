@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@nodomx/nd-compiler",
   "version": "0.1.0",
   "description": "Compiler utilities for NodomX .nd single-file components.",

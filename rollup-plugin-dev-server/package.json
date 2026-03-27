@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@nodomx/rollup-plugin-dev-server",
   "version": "0.1.0",
   "description": "Rollup development server with hot entry remounts for NodomX apps.",

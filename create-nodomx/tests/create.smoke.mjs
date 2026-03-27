@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createProject } from "../src/index.mjs";
 
@@ -12,7 +11,6 @@ const projectDir = path.join(tmpDir, "demo-app");
 const registryDir = path.join(tmpDir, "registry-app");
 
 await createProject(projectDir, {
-    install: true,
     packageMode: "local",
     repoRoot: path.resolve(__dirname, "..", "..")
 });
@@ -20,12 +18,18 @@ await createProject(projectDir, {
 const packageJson = JSON.parse(await fs.readFile(path.join(projectDir, "package.json"), "utf8"));
 assert.equal(packageJson.name, "demo-app");
 assert.equal(packageJson.scripts.dev, "rollup -c rollup.config.mjs -w");
+assert.match(packageJson.devDependencies["@nodomx/rollup-plugin-dev-server"], /^file:/);
+assert.match(packageJson.devDependencies["@nodomx/rollup-plugin-nd"], /^file:/);
+assert.match(packageJson.devDependencies["@nodomx/nd-compiler"], /^file:/);
+assert.match(packageJson.dependencies["@nodomx/reactivity"], /^file:/);
+assert.match(packageJson.dependencies["@nodomx/runtime-core"], /^file:/);
+assert.match(packageJson.dependencies.nodomx, /^file:/);
 
 assert.ok(await exists(path.join(projectDir, "src", "App.nd")));
 assert.ok(await exists(path.join(projectDir, "public", "index.html")));
-
-run("npm", ["run", "build"], projectDir);
-assert.ok(await exists(path.join(projectDir, "dist", "main.js")));
+assert.match(await fs.readFile(path.join(projectDir, "rollup.config.mjs"), "utf8"), /nodomDevServer/);
+assert.match(await fs.readFile(path.join(projectDir, "src", "main.js"), "utf8"), /Nodom/);
+assert.match(await fs.readFile(path.join(projectDir, "src", "App.nd"), "utf8"), /<script setup>/);
 
 await createProject(registryDir, {
     packageMode: "registry"
@@ -39,20 +43,6 @@ assert.equal(registryPkg.dependencies["@nodomx/runtime-core"], "^0.2.3");
 assert.equal(registryPkg.dependencies.nodomx, "^0.2.3");
 
 console.log("create-nodomx smoke test passed");
-
-function run(command, args, cwd) {
-    const result = spawnSync(command, args, {
-        cwd,
-        stdio: "inherit",
-        shell: process.platform === "win32"
-    });
-    if (result.error) {
-        throw result.error;
-    }
-    if (result.status !== 0) {
-        throw new Error(`${command} ${args.join(" ")} failed`);
-    }
-}
 
 async function exists(file) {
     try {

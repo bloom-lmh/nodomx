@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "@nodomx/runtime-view",
     "version":  "0.2.3",
     "description":  "Renderer and DOM update runtime for NodomX.",

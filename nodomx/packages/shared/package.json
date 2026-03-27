@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "@nodomx/shared",
     "version":  "0.2.3",
     "description":  "Shared runtime utilities and types for NodomX.",

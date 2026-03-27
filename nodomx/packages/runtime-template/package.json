@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "@nodomx/runtime-template",
     "version":  "0.2.3",
     "description":  "Template compiler and virtual dom structures for NodomX.",

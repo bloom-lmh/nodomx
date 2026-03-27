@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "@nodomx/runtime-scheduler",
     "version":  "0.2.3",
     "description":  "Scheduler and request runtime for NodomX.",

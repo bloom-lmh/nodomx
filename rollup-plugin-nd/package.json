@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@nodomx/rollup-plugin-nd",
   "version": "0.1.0",
   "description": "Rollup plugin for importing NodomX .nd single-file components.",
