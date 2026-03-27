@@ -36,7 +36,10 @@ npm run build:docs
 npm run build
 ```
 
-当前 `build` 会先清掉 `.vitepress/.cache`、`.vitepress/.temp` 和 `dist`，避免部署时复用旧产物。
+## 已上线官网
+
+- 国际站：[https://nodomx-docs.vercel.app/](https://nodomx-docs.vercel.app/)
+- 中文站：[https://nodomx-e83lc0sk.maozi.io/](https://nodomx-e83lc0sk.maozi.io/)
 
 ## Vercel 部署
 
