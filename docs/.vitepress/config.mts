@@ -1,6 +1,8 @@
+import { defineConfig } from "vitepress";
+
 const docsBase = normalizeBase(process.env.DOCS_BASE || "/");
 
-export default {
+export default defineConfig({
     lang: "zh-CN",
     title: "NodomX",
     description:
@@ -43,10 +45,7 @@ export default {
                         { text: "模块系统", link: "/guide/module-system" },
                         { text: "模板语法", link: "/guide/template-syntax" },
                         { text: "指令", link: "/guide/directives" },
-                        {
-                            text: "事件与方法",
-                            link: "/guide/events-and-methods",
-                        },
+                        { text: "事件与方法", link: "/guide/events-and-methods" },
                     ],
                 },
                 {
@@ -61,10 +60,7 @@ export default {
                     text: "运行时",
                     items: [
                         { text: "Router", link: "/guide/router" },
-                        {
-                            text: "渲染与性能",
-                            link: "/guide/rendering-performance",
-                        },
+                        { text: "渲染与性能", link: "/guide/rendering-performance" },
                         { text: "扩展 API", link: "/guide/extension-api" },
                     ],
                 },
@@ -91,6 +87,7 @@ export default {
             ],
         },
         outline: {
+            level: [2, 3],
             label: "本页目录",
         },
         docFooter: {
@@ -102,6 +99,10 @@ export default {
         darkModeSwitchLabel: "切换主题",
         lightModeSwitchTitle: "切换到浅色模式",
         darkModeSwitchTitle: "切换到深色模式",
+        editLink: {
+            pattern: "https://github.com/bloom-lmh/nodomx/edit/main/docs/:path",
+            text: "在 GitHub 上编辑此页",
+        },
         footer: {
             message: "Built with VitePress for the NodomX monorepo.",
             copyright: "Copyright (c) 2026 NodomX",
@@ -110,9 +111,9 @@ export default {
             { icon: "github", link: "https://github.com/bloom-lmh/nodomx" },
         ],
     },
-};
+});
 
-function normalizeBase(basePath) {
+function normalizeBase(basePath: string) {
     if (!basePath || basePath === "/") {
         return "/";
     }
