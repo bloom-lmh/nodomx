@@ -84,6 +84,16 @@ npm run docs:build
 npm run docs:preview
 ```
 
+`docs` 目录本身现在也是一个独立的 VitePress 包，目录内自带 [package.json](/E:/dev_projects/nodomx/docs/package.json)。
+这意味着你也可以直接进入 `docs` 目录单独运行：
+
+```bash
+cd docs
+npm install
+npm run dev
+npm run build
+```
+
 ## 官网部署
 
 NodomX 文档站现在支持三种部署模式：
@@ -109,25 +119,30 @@ GitHub Pages 使用仓库子路径部署，已经接入自动 workflow。
 
 ### Vercel
 
-仓库里已经提供了 [vercel.json](/E:/dev_projects/nodomx/vercel.json)，直接适配 Vercel 静态部署。
+仓库里已经提供了两套方式：
+
+- 根目录模式：[vercel.json](/E:/dev_projects/nodomx/vercel.json)
+- `docs` 独立站点模式：[docs/vercel.json](/E:/dev_projects/nodomx/docs/vercel.json)
+
+如果你的目标只是部署文档站，我更推荐直接把 Vercel 的 Root Directory 设成 `docs`。这样 Vercel 会把它当成一个标准 VitePress 站点来处理，链路更短，也更不容易被 monorepo 其它包干扰。
 
 推荐项目设置：
 
 - Framework Preset：`Other` 或自动识别为 `VitePress`
-- Root Directory：仓库根目录
+- Root Directory：`docs`
 - Install Command：`npm install`
-- Build Command：`npm run docs:build:vercel`
-- Output Directory：`docs/.vitepress/dist`
+- Build Command：`npm run build`
+- Output Directory：`.vitepress/dist`
 - Production Branch：`main`
 - Node.js：建议 `20`
 
 仓库内对应脚本：
 
 ```bash
-npm run docs:build:vercel
+cd docs
+npm install
+npm run build
 ```
-
-这个脚本会把 `DOCS_BASE` 固定成 `/`，适合 Vercel 根域名或自定义域名部署。
 
 后台可以直接按下面填写：
 
@@ -135,17 +150,17 @@ npm run docs:build:vercel
 | --- | --- |
 | Import Git Repository | `bloom-lmh/nodomx` |
 | Framework Preset | `Other` 或 `VitePress` |
-| Root Directory | `.` |
+| Root Directory | `docs` |
 | Install Command | `npm install` |
-| Build Command | `npm run docs:build:vercel` |
-| Output Directory | `docs/.vitepress/dist` |
+| Build Command | `npm run build` |
+| Output Directory | `.vitepress/dist` |
 | Node.js Version | `20` |
 | Production Branch | `main` |
 
 推荐部署流程：
 
 1. 在 Vercel 中导入 GitHub 仓库 `bloom-lmh/nodomx`
-2. 保持根目录为仓库根，不要切到 `docs/`
+2. 把 Root Directory 设成 `docs`
 3. 首次部署完成后，先访问首页和 `/guide/tooling-deploy.html`
 4. 验站通过后，再绑定海外主域名，例如 `nodomx.dev`
 

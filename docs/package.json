@@ -2,9 +2,15 @@
   "name": "nodomx-docs",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "dev": "vitepress dev .",
+    "build": "node ./scripts/build.mjs",
+    "preview": "vitepress preview .",
     "docs:dev": "vitepress dev .",
-    "docs:build": "node ../scripts/release/run-docs-build.mjs",
+    "docs:build": "node ./scripts/build.mjs",
     "docs:preview": "vitepress preview ."
   },
   "devDependencies": {
