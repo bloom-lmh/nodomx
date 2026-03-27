@@ -2,6 +2,14 @@
 
 扩展包名：`nodomx-nd-vscode`
 
+发布者：`bloom-lmh`
+
+Marketplace 预期直链：
+
+```text
+https://marketplace.visualstudio.com/items?itemName=bloom-lmh.nodomx-nd-vscode
+```
+
 ## 已支持能力
 
 - `.nd` 语法高亮
@@ -36,7 +44,26 @@ npm run package:extension
 vscode-extension/nodomx-nd-vscode-<version>.vsix
 ```
 
-如果已经发布到 Marketplace，用户可以直接在扩展市场搜索 `NodomX ND`。
+如果 Marketplace 索引还没完成，或者你想先内测，这就是最稳的安装方式。
+
+## Marketplace 发布
+
+GitHub Actions 里的 `Release` workflow 已经支持扩展发布，但它依赖仓库 secret：
+
+- `VSCE_PAT`
+
+只有在 `VSCE_PAT` 已配置时，这一步才会真正执行：
+
+```bash
+npm run publish:extension
+```
+
+如果 workflow 成功但 Marketplace 页面暂时还打不开，通常有两种情况：
+
+- 发布步骤被 secret 缺失逻辑跳过了
+- 扩展已经发布，但 Marketplace 搜索索引还没完成
+
+最直接的核验方式是访问上面的 `itemName` 直链，而不是只看 workflow 是否成功。
 
 ## 推荐配置
 
@@ -46,3 +73,12 @@ vscode-extension/nodomx-nd-vscode-<version>.vsix
 - `nodomx.nd.enableLanguageServer`
 
 这样 `.nd` 文件会在保存时自动编译，并且模板里的符号能获得更稳定的诊断和跳转。
+
+## 发布前检查清单
+
+- `publisher` 与你在 VSCode Marketplace 上创建的发布者一致
+- `VSCE_PAT` 已放进 GitHub Secrets
+- `npm run package:extension` 本地可通过
+- `Release` workflow 里 `Publish VSCode extension` 步骤没有走 skip 分支
+
+如果你希望同时上架 Open VSX，可以在后续再补 `OVSX_TOKEN` 和一条独立的发布流程。
