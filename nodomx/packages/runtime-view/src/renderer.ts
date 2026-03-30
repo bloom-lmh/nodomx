@@ -8,6 +8,43 @@ import type { ModelLike, ModuleLike } from "@nodomx/shared";
 import { CssManager } from "./cssmanager";
 import { appendRenderedChild, canReuseRenderedSubtree, findPreviousChild, resolveRenderedKey, reuseRenderedDom } from "./reuse";
 
+type TeleportRenderedDom = RenderedDom & {
+    transition?: {
+        duration?: number;
+        enterActiveClass?: string;
+        enterDuration?: number;
+        enterFromClass?: string;
+        enterToClass?: string;
+        group?: boolean;
+        leaveActiveClass?: string;
+        leaveDuration?: number;
+        leaveFromClass?: string;
+        leaveToClass?: string;
+        moveClass?: string;
+        moveDuration?: number;
+        name?: string;
+    };
+    teleportDisabled?: boolean;
+    teleportTarget?: unknown;
+};
+
+type ModuleWithHooks = ModuleLike & {
+    emitHook?: (eventName: string, ...args: unknown[]) => boolean;
+};
+
+type TransitionRuntimeState = {
+    cancelEnterFrame?: () => void;
+    cancelEnterTimer?: () => void;
+    cancelLeaveFrame?: () => void;
+    cancelLeaveTimer?: () => void;
+    cancelMoveFrame?: () => void;
+    cancelMoveTimer?: () => void;
+    restoreMoveStyles?: () => void;
+    phase?: "enter" | "leave" | "move";
+};
+
+const transitionRuntimeStates = new WeakMap<Element, TransitionRuntimeState>();
+
 export class Renderer {
     private static rootEl: HTMLElement;
     private static waitList: Array<number | null> = [];
@@ -260,6 +297,7 @@ export class Renderer {
         dom.node = el;
         if (dom.tagName) {
             syncDomState(module, dom, oldDom, el);
+            moveTeleportNode(dom, el, oldDom.parent?.node as Node | undefined);
         } else {
             (el as Text).textContent = dom.textContent as string;
         }
@@ -271,8 +309,8 @@ export class Renderer {
         if (el && src.tagName && !src.childModuleId) {
             appendChildren(el, src);
         }
-        if (el && parentEl) {
-            parentEl.appendChild(el);
+        if (el) {
+            moveTeleportNode(src, el, parentEl || undefined);
         }
         return el as Node;
 
@@ -310,6 +348,7 @@ export class Renderer {
                 }
             }
             module.eventFactory.handleDomEvent(dom);
+            queueTransitionEnter(module, dom, el);
             return el;
         }
 
@@ -340,6 +379,62 @@ export class Renderer {
                 }
             }
         }
+    }
+
+    public static syncTeleports(dom?: RenderedDom): void {
+        if (!dom) {
+            return;
+        }
+        if (dom.node) {
+            moveTeleportNode(dom, dom.node, dom.parent?.node as Node | undefined);
+        }
+        if (dom.children) {
+            for (const child of dom.children) {
+                this.syncTeleports(child);
+            }
+        }
+    }
+
+    public static runLeaveTransition(module: ModuleLike, dom: RenderedDom, removeNode: () => void): boolean {
+        const transition = resolveTransitionDescriptor(dom);
+        const node = dom.node;
+        if (!transition || !(node instanceof Element)) {
+            return false;
+        }
+        const state = getTransitionRuntimeState(node);
+
+        const {
+            leaveActiveClass,
+            leaveDuration,
+            leaveFromClass,
+            leaveToClass
+        } = transition;
+
+        cancelTransitionPhase(module, node, state, "enter", transition);
+        cancelTransitionPhase(module, node, state, "leave", transition);
+
+        state.phase = "leave";
+        emitTransitionHook(module, "onBeforeLeave", node);
+        removeTransitionClasses(node, [
+            transition.enterActiveClass,
+            transition.enterFromClass,
+            transition.enterToClass
+        ]);
+        addTransitionClasses(node, [leaveFromClass, leaveActiveClass]);
+        state.cancelLeaveFrame = scheduleNextFrame(() => {
+            state.cancelLeaveFrame = undefined;
+            removeTransitionClasses(node, [leaveFromClass]);
+            addTransitionClasses(node, [leaveToClass]);
+            emitTransitionHook(module, "onLeave", node);
+            state.cancelLeaveTimer = scheduleDelay(leaveDuration, () => {
+                state.cancelLeaveTimer = undefined;
+                removeTransitionClasses(node, [leaveActiveClass, leaveToClass]);
+                state.phase = undefined;
+                removeNode();
+                emitTransitionHook(module, "onAfterLeave", node);
+            });
+        });
+        return true;
     }
 
     public static handleChangedDoms(module: ModuleLike, changeDoms: ChangedDom[]): void {
@@ -388,10 +483,18 @@ export class Renderer {
             if (!parentNode) {
                 continue;
             }
-            const node = item[0] === 1 ? Renderer.renderToHtml(module, item[1], null) : item[1].node;
+            const teleportActive = isActiveTeleport(item[1]);
+            const node = item[0] === 1
+                ? Renderer.renderToHtml(module, item[1], teleportActive ? parentNode : null)
+                : item[1].node;
             if (!node) {
                 continue;
             }
+            if (teleportActive) {
+                moveTeleportNode(item[1], node, parentNode);
+                continue;
+            }
+            const previousRect = item[0] === 4 ? captureTransitionMoveRect(item[1], node) : null;
             let index = item[4] as number;
             const offset = addOrMove.filter(change =>
                 change[0] === 4
@@ -400,6 +503,9 @@ export class Renderer {
                 && (change[5] as number) < index
             ).length;
             moveNode(node, parentNode, index + offset);
+            if (item[0] === 4) {
+                queueTransitionMove(module, item[1], node, previousRect);
+            }
         }
 
         for (const key of Object.keys(slotDoms)) {
@@ -453,6 +559,14 @@ export class Renderer {
 
     private static replace(module: ModuleLike, src: RenderedDom, dst: RenderedDom): void {
         const el = this.renderToHtml(module, src, null);
+        if (isActiveTeleport(src)) {
+            moveTeleportNode(src, el, dst.parent?.node as Node | undefined);
+            if (dst.node?.parentElement) {
+                dst.node.parentElement.removeChild(dst.node);
+            }
+            module.domManager.freeNode(dst, true);
+            return;
+        }
         if (dst.childModuleId) {
             const childModule = ModuleFactory.get(dst.childModuleId) as ModuleLike;
             const parentEl = childModule?.srcDom?.node?.parentElement;
@@ -519,6 +633,15 @@ function cloneRenderBlueprintNode(
         childrenStructureFlags: src.childrenStructureFlags,
         __skipDiff: false
     };
+    cloned.childModuleId = blueprint.childModuleId;
+    (cloned as RenderedDom & { keepAlive?: RenderedDom["keepAlive"] }).keepAlive = cloneKeepAliveState(
+        (blueprint as RenderedDom & { keepAlive?: RenderedDom["keepAlive"] }).keepAlive
+    );
+    (cloned as TeleportRenderedDom).transition = (blueprint as TeleportRenderedDom).transition
+        ? { ...(blueprint as TeleportRenderedDom).transition }
+        : undefined;
+    (cloned as TeleportRenderedDom).teleportDisabled = (blueprint as TeleportRenderedDom).teleportDisabled;
+    (cloned as TeleportRenderedDom).teleportTarget = (blueprint as TeleportRenderedDom).teleportTarget;
 
     if (blueprint.tagName) {
         cloned.tagName = blueprint.tagName;
@@ -563,6 +686,20 @@ function cloneRenderBlueprintNode(
     return cloned;
 }
 
+function cloneKeepAliveState(value: RenderedDom["keepAlive"]): RenderedDom["keepAlive"] {
+    if (!value || typeof value !== "object") {
+        return value;
+    }
+    const cloned = { ...value };
+    if (Array.isArray(cloned.include)) {
+        cloned.include = [...cloned.include];
+    }
+    if (Array.isArray(cloned.exclude)) {
+        cloned.exclude = [...cloned.exclude];
+    }
+    return cloned;
+}
+
 function cacheStaticRenderBlueprint(src: VirtualDom, dom: RenderedDom): void {
     if (!canCacheStaticRenderBlueprint(src) || src.renderBlueprint) {
         return;
@@ -580,8 +717,18 @@ function createRenderBlueprint(dom: RenderedDom): RenderedDom {
         blockRoot: dom.blockRoot,
         structureFlags: dom.structureFlags,
         moduleId: dom.moduleId,
-        slotModuleId: dom.slotModuleId
+        slotModuleId: dom.slotModuleId,
+        childModuleId: dom.childModuleId
     };
+
+    (blueprint as RenderedDom & { keepAlive?: RenderedDom["keepAlive"] }).keepAlive = cloneKeepAliveState(
+        (dom as RenderedDom & { keepAlive?: RenderedDom["keepAlive"] }).keepAlive
+    );
+    (blueprint as TeleportRenderedDom).transition = (dom as TeleportRenderedDom).transition
+        ? { ...(dom as TeleportRenderedDom).transition }
+        : undefined;
+    (blueprint as TeleportRenderedDom).teleportDisabled = (dom as TeleportRenderedDom).teleportDisabled;
+    (blueprint as TeleportRenderedDom).teleportTarget = (dom as TeleportRenderedDom).teleportTarget;
 
     if (dom.tagName) {
         blueprint.tagName = dom.tagName;
@@ -615,7 +762,22 @@ function createRenderBlueprint(dom: RenderedDom): RenderedDom {
 }
 
 function canCacheStaticRenderBlueprint(src: VirtualDom): boolean {
-    return src.hoisted && src.key !== 1 && !src.directives?.length;
+    return src.hoisted
+        && src.key !== 1
+        && !src.directives?.length
+        && !hasStatefulRuntimeSubtree(src);
+}
+
+function hasStatefulRuntimeSubtree(src: VirtualDom): boolean {
+    if (src.directives?.some(directive =>
+        directive.type?.name === "module"
+        || directive.type?.name === "keepalive"
+        || directive.type?.name === "transition"
+        || directive.type?.name === "teleport"
+    )) {
+        return true;
+    }
+    return !!src.children?.some(child => hasStatefulRuntimeSubtree(child));
 }
 
 function normalizePropValue(value: unknown): unknown {
@@ -780,5 +942,282 @@ function syncNamedAsset(
         return;
     }
     (el as unknown as Record<string, unknown>)[key] = nextValue === undefined ? null : nextValue;
+}
+
+function resolveTeleportTarget(target: unknown): Element | null {
+    if (typeof target === "string" && target.trim()) {
+        return document.querySelector(target);
+    }
+    return target instanceof Element ? target : null;
+}
+
+function moveTeleportNode(dom: RenderedDom, node: Node, fallbackParent?: Node): void {
+    const teleportDom = dom as TeleportRenderedDom;
+    if (!dom.tagName) {
+        if (fallbackParent) {
+            fallbackParent.appendChild(node);
+        }
+        return;
+    }
+    const teleportTarget = !teleportDom.teleportDisabled
+        ? resolveTeleportTarget(teleportDom.teleportTarget)
+        : null;
+    if (teleportTarget) {
+        if (node.parentElement !== teleportTarget) {
+            teleportTarget.appendChild(node);
+        }
+        return;
+    }
+    if (fallbackParent) {
+        fallbackParent.appendChild(node);
+    }
+}
+
+function isActiveTeleport(dom: RenderedDom): boolean {
+    const teleportDom = dom as TeleportRenderedDom;
+    return !!dom.tagName && !teleportDom.teleportDisabled && !!resolveTeleportTarget(teleportDom.teleportTarget);
+}
+
+function captureTransitionMoveRect(dom: RenderedDom, node: Node): DOMRect | null {
+    const transition = resolveTransitionDescriptor(dom);
+    if (!transition?.group || !(node instanceof Element) || typeof node.getBoundingClientRect !== "function") {
+        return null;
+    }
+    return node.getBoundingClientRect();
+}
+
+function queueTransitionEnter(module: ModuleLike, dom: RenderedDom, node: Node): void {
+    const transition = resolveTransitionDescriptor(dom);
+    if (!transition || !(node instanceof Element)) {
+        return;
+    }
+    const state = getTransitionRuntimeState(node);
+    const {
+        enterActiveClass,
+        enterDuration,
+        enterFromClass,
+        enterToClass,
+        leaveActiveClass,
+        leaveFromClass,
+        leaveToClass
+    } = transition;
+
+    cancelTransitionPhase(module, node, state, "leave", transition);
+    cancelTransitionPhase(module, node, state, "enter", transition);
+
+    state.phase = "enter";
+    emitTransitionHook(module, "onBeforeEnter", node);
+    removeTransitionClasses(node, [leaveActiveClass, leaveFromClass, leaveToClass]);
+    addTransitionClasses(node, [enterFromClass, enterActiveClass]);
+    state.cancelEnterFrame = scheduleNextFrame(() => {
+        state.cancelEnterFrame = undefined;
+        removeTransitionClasses(node, [enterFromClass]);
+        addTransitionClasses(node, [enterToClass]);
+        emitTransitionHook(module, "onEnter", node);
+        state.cancelEnterTimer = scheduleDelay(enterDuration, () => {
+            state.cancelEnterTimer = undefined;
+            removeTransitionClasses(node, [enterActiveClass, enterToClass]);
+            state.phase = undefined;
+            emitTransitionHook(module, "onAfterEnter", node);
+        });
+    });
+}
+
+function queueTransitionMove(
+    module: ModuleLike,
+    dom: RenderedDom,
+    node: Node,
+    previousRect: DOMRect | null
+): void {
+    const transition = resolveTransitionDescriptor(dom);
+    if (!transition?.group || !(node instanceof HTMLElement) || !previousRect) {
+        return;
+    }
+    const nextRect = node.getBoundingClientRect?.();
+    if (!nextRect) {
+        return;
+    }
+    const deltaX = previousRect.left - nextRect.left;
+    const deltaY = previousRect.top - nextRect.top;
+    if (deltaX === 0 && deltaY === 0) {
+        return;
+    }
+    const state = getTransitionRuntimeState(node);
+    cancelTransitionPhase(module, node, state, "move", transition);
+
+    const previousTransition = node.style.transition;
+    const previousTransform = node.style.transform;
+    state.restoreMoveStyles = () => {
+        node.style.transition = previousTransition;
+        node.style.transform = previousTransform;
+    };
+
+    state.phase = "move";
+    emitTransitionHook(module, "onBeforeMove", node);
+    node.style.transition = "none";
+    node.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+    node.getBoundingClientRect?.();
+    state.cancelMoveFrame = scheduleNextFrame(() => {
+        state.cancelMoveFrame = undefined;
+        addTransitionClasses(node, [transition.moveClass]);
+        node.style.transition = previousTransition || `transform ${transition.moveDuration}ms ease`;
+        node.style.transform = previousTransform || "";
+        emitTransitionHook(module, "onMove", node);
+        state.cancelMoveTimer = scheduleDelay(transition.moveDuration, () => {
+            state.cancelMoveTimer = undefined;
+            removeTransitionClasses(node, [transition.moveClass]);
+            state.restoreMoveStyles?.();
+            state.restoreMoveStyles = undefined;
+            state.phase = undefined;
+            emitTransitionHook(module, "onAfterMove", node);
+        });
+    });
+}
+
+function resolveTransitionDescriptor(dom: RenderedDom): Required<NonNullable<TeleportRenderedDom["transition"]>> | null {
+    const transition = (dom as TeleportRenderedDom).transition;
+    if (!transition) {
+        return null;
+    }
+    const name = typeof transition.name === "string" && transition.name.trim()
+        ? transition.name.trim()
+        : "nd";
+    const duration = normalizeTransitionDuration(transition.duration, 250);
+    return {
+        duration,
+        enterActiveClass: transition.enterActiveClass || `${name}-enter-active`,
+        enterDuration: normalizeTransitionDuration(transition.enterDuration, duration),
+        enterFromClass: transition.enterFromClass || `${name}-enter-from`,
+        enterToClass: transition.enterToClass || `${name}-enter-to`,
+        group: transition.group === true,
+        leaveActiveClass: transition.leaveActiveClass || `${name}-leave-active`,
+        leaveDuration: normalizeTransitionDuration(transition.leaveDuration, duration),
+        leaveFromClass: transition.leaveFromClass || `${name}-leave-from`,
+        leaveToClass: transition.leaveToClass || `${name}-leave-to`,
+        moveClass: transition.moveClass || `${name}-move`,
+        moveDuration: normalizeTransitionDuration(transition.moveDuration, duration),
+        name
+    };
+}
+
+function normalizeTransitionDuration(value: unknown, fallback: number): number {
+    return typeof value === "number" && Number.isFinite(value)
+        ? Math.max(0, value)
+        : fallback;
+}
+
+function addTransitionClasses(node: Element, classes: Array<string | undefined>): void {
+    const tokens = classes
+        .flatMap(value => typeof value === "string" ? value.split(/\s+/) : [])
+        .map(value => value.trim())
+        .filter(Boolean);
+    if (tokens.length > 0) {
+        node.classList.add(...tokens);
+    }
+}
+
+function removeTransitionClasses(node: Element, classes: Array<string | undefined>): void {
+    const tokens = classes
+        .flatMap(value => typeof value === "string" ? value.split(/\s+/) : [])
+        .map(value => value.trim())
+        .filter(Boolean);
+    if (tokens.length > 0) {
+        node.classList.remove(...tokens);
+    }
+}
+
+function scheduleNextFrame(callback: () => void): () => void {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        let cancelled = false;
+        let secondFrame: number | undefined;
+        const firstFrame = window.requestAnimationFrame(() => {
+            if (cancelled) {
+                return;
+            }
+            secondFrame = window.requestAnimationFrame(() => {
+                if (!cancelled) {
+                    callback();
+                }
+            });
+        });
+        return () => {
+            cancelled = true;
+            window.cancelAnimationFrame?.(firstFrame);
+            if (secondFrame !== undefined) {
+                window.cancelAnimationFrame?.(secondFrame);
+            }
+        };
+    }
+    const timerId = window.setTimeout(callback, 16);
+    return () => clearTimeout(timerId);
+}
+
+function emitTransitionHook(module: ModuleLike, eventName: string, node: Element): void {
+    (module as ModuleWithHooks).emitHook?.(eventName, node);
+}
+
+function scheduleDelay(delay: number, callback: () => void): () => void {
+    const timerId = window.setTimeout(callback, delay);
+    return () => clearTimeout(timerId);
+}
+
+function getTransitionRuntimeState(node: Element): TransitionRuntimeState {
+    let state = transitionRuntimeStates.get(node);
+    if (!state) {
+        state = {};
+        transitionRuntimeStates.set(node, state);
+    }
+    return state;
+}
+
+function cancelTransitionPhase(
+    module: ModuleLike,
+    node: Element,
+    state: TransitionRuntimeState,
+    phase: "enter" | "leave" | "move",
+    transition: Required<NonNullable<TeleportRenderedDom["transition"]>>
+): void {
+    const cancelFrameKey = phase === "enter"
+        ? "cancelEnterFrame"
+        : phase === "leave"
+            ? "cancelLeaveFrame"
+            : "cancelMoveFrame";
+    const cancelTimerKey = phase === "enter"
+        ? "cancelEnterTimer"
+        : phase === "leave"
+            ? "cancelLeaveTimer"
+            : "cancelMoveTimer";
+    const cancelFrame = state[cancelFrameKey];
+    const cancelTimer = state[cancelTimerKey];
+    if (!cancelFrame && !cancelTimer && state.phase !== phase) {
+        return;
+    }
+    cancelFrame?.();
+    cancelTimer?.();
+    state[cancelFrameKey] = undefined;
+    state[cancelTimerKey] = undefined;
+    if (phase === "move") {
+        removeTransitionClasses(node, [transition.moveClass]);
+        state.restoreMoveStyles?.();
+        state.restoreMoveStyles = undefined;
+    } else {
+        const isEnter = phase === "enter";
+        removeTransitionClasses(node, isEnter
+            ? [transition.enterActiveClass, transition.enterFromClass, transition.enterToClass]
+            : [transition.leaveActiveClass, transition.leaveFromClass, transition.leaveToClass]
+        );
+    }
+    if (state.phase === phase) {
+        emitTransitionHook(
+            module,
+            phase === "enter"
+                ? "onEnterCancelled"
+                : phase === "leave"
+                    ? "onLeaveCancelled"
+                    : "onMoveCancelled",
+            node
+        );
+        state.phase = undefined;
+    }
 }
 

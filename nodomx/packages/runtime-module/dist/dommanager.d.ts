@@ -19,6 +19,7 @@ export declare class DomManager {
      * 渲染后的dom树
      */
     renderedTree: RenderedDom;
+    private keepAliveScopes;
     /**
      * 构造方法
      * @param module -  所属模块
@@ -43,5 +44,9 @@ export declare class DomManager {
      * @param dom -         虚拟dom
      * @param destroy -     是否销毁，当dom带有子模块时，如果设置为true，则子模块执行destroy，否则执行unmount
      */
-    freeNode(dom: RenderedDom, destroy?: boolean): void;
+    freeNode(dom: RenderedDom, destroy?: boolean, skipTransition?: boolean): void;
+    private registerKeepAliveCache;
+    private evictKeepAliveEntries;
+    private removeKeepAliveCacheEntry;
+    private detachChildModule;
 }

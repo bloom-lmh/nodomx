@@ -185,5 +185,154 @@ class ROUTER extends DefineElement{
     }
 }
 
+/**
+ * Teleport 元素
+ * @remarks
+ * 用 `<Teleport to="#target">...</Teleport>` 把内容移动到其它 DOM 容器
+ */
+class KEEPALIVE extends DefineElement{
+    constructor(node: VirtualDom,module:Module){
+        super(node,module);
+        const style = node.getProp('style');
+        if(typeof style === 'string' && style.trim()){
+            if(!/display\s*:/.test(style)){
+                node.setProp('style', `${style};display:contents`);
+            }
+        }else if(style === undefined){
+            node.setProp('style', 'display:contents');
+        }
+        const keepAliveValue = {
+            disabled: node.hasProp('disabled') ? node.getProp('disabled') : false,
+            exclude: node.hasProp('exclude') ? node.getProp('exclude') : undefined,
+            include: node.hasProp('include') ? node.getProp('include') : undefined,
+            max: node.hasProp('max') ? node.getProp('max') : undefined,
+            scopeKey: node.key
+        };
+        node.delProp('disabled');
+        node.delProp('exclude');
+        node.delProp('include');
+        node.delProp('max');
+        for(const child of node.children || []){
+            if(child.hasDirective('module')){
+                child.addDirective(new Directive('keepalive', keepAliveValue as any));
+            }
+        }
+    }
+}
+
+class TRANSITION extends DefineElement{
+    constructor(node: VirtualDom,module:Module){
+        super(node,module);
+        const style = node.getProp('style');
+        if(typeof style === 'string' && style.trim()){
+            if(!/display\s*:/.test(style)){
+                node.setProp('style', `${style};display:contents`);
+            }
+        }else if(style === undefined){
+            node.setProp('style', 'display:contents');
+        }
+        const transitionValue = {
+            duration: node.getProp('duration'),
+            enterActiveClass: node.getProp('enter-active-class'),
+            enterDuration: node.getProp('enter-duration'),
+            enterFromClass: node.getProp('enter-from-class'),
+            enterToClass: node.getProp('enter-to-class'),
+            leaveActiveClass: node.getProp('leave-active-class'),
+            leaveDuration: node.getProp('leave-duration'),
+            leaveFromClass: node.getProp('leave-from-class'),
+            leaveToClass: node.getProp('leave-to-class'),
+            moveClass: node.getProp('move-class'),
+            moveDuration: node.getProp('move-duration'),
+            name: node.getProp('name')
+        };
+        [
+            'duration',
+            'enter-active-class',
+            'enter-duration',
+            'enter-from-class',
+            'enter-to-class',
+            'leave-active-class',
+            'leave-duration',
+            'leave-from-class',
+            'leave-to-class',
+            'move-class',
+            'move-duration',
+            'name'
+        ].forEach(propName => node.delProp(propName));
+        for(const child of node.children || []){
+            if(child.tagName || child.children?.length){
+                child.addDirective(new Directive('transition', transitionValue as any));
+            }
+        }
+    }
+}
+
+class TRANSITIONGROUP extends DefineElement{
+    constructor(node: VirtualDom,module:Module){
+        super(node,module);
+        const style = node.getProp('style');
+        if(typeof style === 'string' && style.trim()){
+            if(!/display\s*:/.test(style)){
+                node.setProp('style', `${style};display:contents`);
+            }
+        }else if(style === undefined){
+            node.setProp('style', 'display:contents');
+        }
+        const transitionValue = {
+            duration: node.getProp('duration'),
+            enterActiveClass: node.getProp('enter-active-class'),
+            enterDuration: node.getProp('enter-duration'),
+            enterFromClass: node.getProp('enter-from-class'),
+            enterToClass: node.getProp('enter-to-class'),
+            group: true,
+            leaveActiveClass: node.getProp('leave-active-class'),
+            leaveDuration: node.getProp('leave-duration'),
+            leaveFromClass: node.getProp('leave-from-class'),
+            leaveToClass: node.getProp('leave-to-class'),
+            moveClass: node.getProp('move-class'),
+            moveDuration: node.getProp('move-duration'),
+            name: node.getProp('name')
+        };
+        [
+            'duration',
+            'enter-active-class',
+            'enter-duration',
+            'enter-from-class',
+            'enter-to-class',
+            'leave-active-class',
+            'leave-duration',
+            'leave-from-class',
+            'leave-to-class',
+            'move-class',
+            'move-duration',
+            'name'
+        ].forEach(propName => node.delProp(propName));
+        for(const child of node.children || []){
+            if(child.tagName || child.children?.length){
+                child.addDirective(new Directive('transition', transitionValue as any));
+            }
+        }
+    }
+}
+
+class TELEPORT extends DefineElement{
+    constructor(node: VirtualDom,module:Module){
+        super(node,module);
+        const style = node.getProp('style');
+        if(typeof style === 'string' && style.trim()){
+            if(!/display\s*:/.test(style)){
+                node.setProp('style', `${style};display:contents`);
+            }
+        }else if(style === undefined){
+            node.setProp('style', 'display:contents');
+        }
+        node.addDirective(new Directive('teleport',null));
+    }
+}
+
+DefineElementManager.add([KEEPALIVE]);
+DefineElementManager.add([TRANSITION]);
+DefineElementManager.add([TRANSITIONGROUP]);
+
 //添加到自定义元素管理器
-DefineElementManager.add([MODULE,FOR,RECUR,IF,ELSE,ELSEIF,ENDIF,SHOW,SLOT,ROUTE,ROUTER]);
+DefineElementManager.add([MODULE,FOR,RECUR,IF,ELSE,ELSEIF,ENDIF,SHOW,SLOT,ROUTE,ROUTER,TELEPORT]);

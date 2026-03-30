@@ -1,0 +1,42 @@
+<template>
+  <section class="panel">
+    <p class="eyebrow">Home</p>
+    <h2>{{headline}}</h2>
+    <p class="copy">This page is rendered through the built-in NodomX router.</p>
+  </section>
+</template>
+
+<script setup>
+import { useState } from "nodomx";
+
+const headline = useState("Ship navigable .nd pages with a Vite starter");
+</script>
+
+<style scoped>
+.panel {
+  padding: 28px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+}
+
+.eyebrow {
+  margin: 0;
+  color: #0369a1;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h2 {
+  margin: 10px 0;
+  color: #0f172a;
+  font-size: 28px;
+}
+
+.copy {
+  margin: 0;
+  color: #475569;
+  font-size: 17px;
+}
+</style>

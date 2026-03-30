@@ -19,6 +19,8 @@ export class Module {
         this.compositionCleanups = [];
         this.compositionHooks = new Map();
         this.dirtyPaths = new Set(["*"]);
+        this.keepAliveManaged = false;
+        this.keepAliveDeactivated = false;
         this.id = id || Util.genId();
         this.domManager = new DomManager(this);
         this.objectManager = new ObjectManager(this);
@@ -29,8 +31,8 @@ export class Module {
     init() {
         this.state = EModuleState.INIT;
         if (Array.isArray(this.modules)) {
-            for (const cls of this.modules) {
-                ModuleFactory.addClass(cls);
+            for (const item of this.modules) {
+                registerModuleDefinition(item);
             }
             delete this.modules;
         }
@@ -135,11 +137,14 @@ export class Module {
         this.dirtyPaths.add(path);
     }
     mount() {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         if (this !== ModuleFactory.getMain() && !((_b = (_a = this.srcDom) === null || _a === void 0 ? void 0 : _a.node) === null || _b === void 0 ? void 0 : _b.parentElement)) {
             return;
         }
-        this.doModuleEvent('onBeforeMount');
+        const isKeepAliveReactivation = this.keepAliveManaged && this.keepAliveDeactivated;
+        if (!isKeepAliveReactivation) {
+            this.doModuleEvent('onBeforeMount');
+        }
         const rootEl = new DocumentFragment();
         const el = Renderer.renderToHtml(this, this.domManager.renderedTree, rootEl);
         if (this === ModuleFactory.getMain()) {
@@ -148,7 +153,14 @@ export class Module {
         else if ((_d = (_c = this.srcDom) === null || _c === void 0 ? void 0 : _c.node) === null || _d === void 0 ? void 0 : _d.parentElement) {
             Util.insertAfter(el, this.srcDom.node);
         }
-        this.doModuleEvent('onMount');
+        (_f = (_e = Renderer).syncTeleports) === null || _f === void 0 ? void 0 : _f.call(_e, this.domManager.renderedTree);
+        if (!isKeepAliveReactivation) {
+            this.doModuleEvent('onMount');
+        }
+        if (this.keepAliveManaged) {
+            this.keepAliveDeactivated = false;
+            this.doModuleEvent('onActivated');
+        }
         this.state = EModuleState.MOUNTED;
     }
     unmount(passive) {
@@ -156,8 +168,11 @@ export class Module {
         if (this.state !== EModuleState.MOUNTED || ModuleFactory.getMain() === this) {
             return;
         }
+        const isKeepAliveDeactivation = !!passive && this.keepAliveManaged;
         Renderer.remove(this);
-        this.doModuleEvent('onBeforeUnMount');
+        if (!isKeepAliveDeactivation) {
+            this.doModuleEvent('onBeforeUnMount');
+        }
         this.eventFactory.clear();
         this.domManager.renderedTree = null;
         if (passive) {
@@ -177,11 +192,20 @@ export class Module {
                 this.srcDom.node.parentElement.removeChild(this.srcDom.node);
             }
         }
-        this.doModuleEvent('onUnMount');
+        if (isKeepAliveDeactivation) {
+            this.keepAliveDeactivated = true;
+            this.doModuleEvent('onDeactivated');
+        }
+        else {
+            this.keepAliveDeactivated = false;
+            this.doModuleEvent('onUnMount');
+        }
     }
     destroy() {
         var _a, _b, _c;
         Renderer.remove(this);
+        this.keepAliveManaged = false;
+        this.keepAliveDeactivated = false;
         this.unmount(true);
         for (const m of this.children) {
             m.destroy();
@@ -250,17 +274,24 @@ export class Module {
         }
     }
     doModuleEvent(eventName) {
+        return this.emitHook(eventName, this.model);
+    }
+    emitHook(eventName, ...args) {
         const foo = this[eventName];
         let result;
         if (foo && typeof foo === 'function') {
-            result = foo.apply(this, [this.model]);
+            result = foo.apply(this, args);
         }
-        this.runCompositionHooks(eventName);
+        this.runCompositionHooks(eventName, ...args);
         return result;
     }
     setProps(props, dom) {
         if (!props) {
             return;
+        }
+        const keepAliveValue = dom.keepAlive;
+        if (isKeepAliveManagedValue(keepAliveValue)) {
+            this.setKeepAliveManaged(true);
         }
         const dataObj = props['$data'];
         delete props['$data'];
@@ -466,9 +497,18 @@ export class Module {
         }
         return defaultValue;
     }
+    setExposed(exposed) {
+        this.exposed = exposed;
+    }
     addCompositionCleanup(cleanup) {
         if (typeof cleanup === 'function') {
             this.compositionCleanups.push(cleanup);
+        }
+    }
+    setKeepAliveManaged(managed) {
+        this.keepAliveManaged = managed;
+        if (!managed) {
+            this.keepAliveDeactivated = false;
         }
     }
     initSetupState() {
@@ -501,13 +541,13 @@ export class Module {
             this[key] = globalProperties[key];
         }
     }
-    runCompositionHooks(eventName) {
+    runCompositionHooks(eventName, ...args) {
         const hooks = this.compositionHooks.get(eventName);
         if (!hooks || hooks.length === 0) {
             return;
         }
         for (const hook of hooks) {
-            hook.apply(this, [this.model]);
+            hook.apply(this, args);
         }
     }
     clearCompositionCleanups() {
@@ -561,6 +601,21 @@ export class Module {
         return Array.from(this.dirtyPaths);
     }
 }
+function registerModuleDefinition(item) {
+    if (!item) {
+        return;
+    }
+    if (typeof item === "function") {
+        ModuleFactory.addClass(item);
+        return;
+    }
+    if (typeof item === "object") {
+        const namedModule = item;
+        if (typeof namedModule.module === "function") {
+            ModuleFactory.addClass(namedModule.module, namedModule.name);
+        }
+    }
+}
 function syncReactiveState(target, nextValue) {
     const rawTarget = toRaw(target);
     for (const key of Reflect.ownKeys(rawTarget)) {
@@ -574,5 +629,14 @@ function syncReactiveState(target, nextValue) {
 }
 function normalizeHotId(hotId) {
     return typeof hotId === 'string' ? hotId.replace(/\\/g, '/') : '';
+}
+function isKeepAliveManagedValue(value) {
+    if (value === undefined || value === false) {
+        return false;
+    }
+    if (value === true) {
+        return true;
+    }
+    return !value.disabled;
 }
 //# sourceMappingURL=module.js.map

@@ -1,0 +1,119 @@
+<template>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">NodomX Playground</p>
+        <h1>Vue-like project structure with `.nd`</h1>
+      </div>
+      <p class="route-text">current route: {{route.path}}</p>
+    </header>
+
+    <nav class="nav">
+      <a class="nav-link" x-route="/home">Home</a>
+      <a class="nav-link" x-route="/guide">Guide</a>
+      <a class="nav-link" x-route="/about">About</a>
+    </nav>
+    <main class="page">
+      <div x-router></div>
+    </main>
+
+  </div>
+</template>
+
+
+<script setup>
+import { onMounted, useRoute, useRouter } from "nodomx";
+
+const route = useRoute();
+const router = useRouter();
+
+onMounted(() => {
+  if (!route.path || route.path === "/") {
+    router.replace("/home");
+  }
+});
+</script>
+
+<style scoped>
+.app-shell {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(20, 184, 166, 0.22), transparent 34%),
+    linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  box-sizing: border-box;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+  margin: 0 auto 24px;
+  max-width: 1120px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: #0f766e;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 36px;
+  line-height: 1.05;
+}
+
+.route-text {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: #334155;
+  font-size: 14px;
+}
+
+.nav {
+  display: flex;
+  gap: 12px;
+  margin: 0 auto 24px;
+  max-width: 1120px;
+}
+
+.nav-link {
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #0f172a;
+  text-decoration: none;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.page {
+  margin: 0 auto;
+  max-width: 1120px;
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 20px;
+  }
+
+  .topbar {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+
+  .nav {
+    flex-wrap: wrap;
+  }
+}
+</style>

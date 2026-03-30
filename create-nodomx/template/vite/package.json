@@ -1,0 +1,20 @@
+{
+  "name": "__PROJECT_NAME__",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@nodomx/reactivity": "__NODOM_REACTIVITY_SPEC__",
+    "@nodomx/runtime-core": "__NODOM_RUNTIME_CORE_SPEC__",
+    "@nodomx/store": "__NODOM_STORE_SPEC__",
+    "nodomx": "__NODOM_SPEC__"
+  },
+  "devDependencies": {
+    "vite": "^8.0.3",
+    "vite-plugin-nodomx": "__VITE_PLUGIN_SPEC__"
+  }
+}

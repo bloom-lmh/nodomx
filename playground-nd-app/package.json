@@ -1,0 +1,21 @@
+{
+  "name": "playground-nd-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rollup -c rollup.config.mjs -w --watch.stdin false",
+    "build": "rollup -c rollup.config.mjs"
+  },
+  "dependencies": {
+    "@nodomx/reactivity": "file:E:/dev_projects/nodomx/nodomx/packages/reactivity",
+    "@nodomx/runtime-core": "file:E:/dev_projects/nodomx/nodomx/packages/runtime-core",
+    "nodomx": "file:E:/dev_projects/nodomx/nodomx"
+  },
+  "devDependencies": {
+    "@nodomx/nd-compiler": "file:E:/dev_projects/nodomx/nd-compiler",
+    "@nodomx/rollup-plugin-dev-server": "file:E:/dev_projects/nodomx/rollup-plugin-dev-server",
+    "@nodomx/rollup-plugin-nd": "file:E:/dev_projects/nodomx/rollup-plugin-nd",
+    "@rollup/plugin-node-resolve": "^15.1.0",
+    "rollup": "^3.26.0"
+  }
+}

@@ -17,6 +17,8 @@ export declare class Renderer {
     private static renderChildren;
     static updateToHtml(module: ModuleLike, dom: RenderedDom, oldDom: RenderedDom): Node;
     static renderToHtml(module: ModuleLike, src: RenderedDom, parentEl: Node | null): Node;
+    static syncTeleports(dom?: RenderedDom): void;
+    static runLeaveTransition(module: ModuleLike, dom: RenderedDom, removeNode: () => void): boolean;
     static handleChangedDoms(module: ModuleLike, changeDoms: ChangedDom[]): void;
     private static replace;
 }

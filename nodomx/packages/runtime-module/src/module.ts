@@ -28,6 +28,10 @@ type ModuleHotSnapshot = {
     state: Record<string, unknown>;
 };
 
+type RendererWithTeleportSync = typeof Renderer & {
+    syncTeleports?: (dom?: RenderedDom) => void;
+};
+
 export class Module {
     
     public id: number;
@@ -66,6 +70,8 @@ export class Module {
 
     private provides?:Map<InjectionKey, unknown>;
 
+    public exposed?:Record<string, unknown>;
+
     
     public modules: unknown[];
 
@@ -92,6 +98,10 @@ export class Module {
 
     private dirtyPaths:Set<string> = new Set(["*"]);
 
+    private keepAliveManaged = false;
+
+    private keepAliveDeactivated = false;
+
     
     constructor(id?:number) {
         this.id = id || Util.genId();
@@ -109,8 +119,8 @@ export class Module {
         this.state = EModuleState.INIT;
 
         if(Array.isArray(this.modules)){
-            for (const cls of this.modules) {
-                ModuleFactory.addClass(cls);
+            for (const item of this.modules) {
+                registerModuleDefinition(item);
             }
             delete this.modules;
         }
@@ -255,7 +265,10 @@ export class Module {
             return;
         }
 
-        this.doModuleEvent('onBeforeMount');
+        const isKeepAliveReactivation = this.keepAliveManaged && this.keepAliveDeactivated;
+        if(!isKeepAliveReactivation){
+            this.doModuleEvent('onBeforeMount');
+        }
 
         const rootEl = new DocumentFragment();
         const el = Renderer.renderToHtml(this,this.domManager.renderedTree,rootEl);
@@ -265,9 +278,16 @@ export class Module {
         }else if(this.srcDom?.node?.parentElement){ 
             Util.insertAfter(el,this.srcDom.node);
         }
-        
 
-        this.doModuleEvent('onMount');
+        (Renderer as RendererWithTeleportSync).syncTeleports?.(this.domManager.renderedTree);
+        
+        if(!isKeepAliveReactivation){
+            this.doModuleEvent('onMount');
+        }
+        if(this.keepAliveManaged){
+            this.keepAliveDeactivated = false;
+            this.doModuleEvent('onActivated');
+        }
         this.state = EModuleState.MOUNTED;
     }
 
@@ -278,9 +298,12 @@ export class Module {
             return;
         }
 
+        const isKeepAliveDeactivation = !!passive && this.keepAliveManaged;
         Renderer.remove(this);
 
-        this.doModuleEvent('onBeforeUnMount');
+        if(!isKeepAliveDeactivation){
+            this.doModuleEvent('onBeforeUnMount');
+        }
 
         this.eventFactory.clear();
 
@@ -308,12 +331,20 @@ export class Module {
             }
         }
 
-        this.doModuleEvent('onUnMount');
+        if(isKeepAliveDeactivation){
+            this.keepAliveDeactivated = true;
+            this.doModuleEvent('onDeactivated');
+        }else{
+            this.keepAliveDeactivated = false;
+            this.doModuleEvent('onUnMount');
+        }
     }
 
     
     public destroy(){
         Renderer.remove(this);
+        this.keepAliveManaged = false;
+        this.keepAliveDeactivated = false;
         this.unmount(true);
         for(const m of this.children){
             m.destroy();
@@ -393,12 +424,16 @@ export class Module {
 
     
     public doModuleEvent(eventName: string):boolean{
+        return this.emitHook(eventName, this.model);
+    }
+
+    public emitHook(eventName: string, ...args: unknown[]): boolean{
         const foo = this[eventName];
         let result:boolean;
         if(foo && typeof foo==='function'){
-            result = foo.apply(this,[this.model]);
+            result = foo.apply(this,args);
         }
-        this.runCompositionHooks(eventName);
+        this.runCompositionHooks(eventName, ...args);
         return result;
     }
 
@@ -406,6 +441,14 @@ export class Module {
     public setProps(props:Record<string, unknown>,dom:RenderedDom){
         if(!props){
             return;
+        }
+        const keepAliveValue = (dom as RenderedDom & {
+            keepAlive?: boolean | {
+                disabled?: boolean;
+            };
+        }).keepAlive;
+        if(isKeepAliveManagedValue(keepAliveValue)){
+            this.setKeepAliveManaged(true);
         }
         const dataObj = props['$data'];
         delete props['$data'];
@@ -647,10 +690,21 @@ export class Module {
         return defaultValue;
     }
 
+    public setExposed(exposed: Record<string, unknown>): void {
+        this.exposed = exposed;
+    }
+
     
     public addCompositionCleanup(cleanup: () => void): void {
         if(typeof cleanup === 'function'){
             this.compositionCleanups.push(cleanup);
+        }
+    }
+
+    public setKeepAliveManaged(managed: boolean): void {
+        this.keepAliveManaged = managed;
+        if(!managed){
+            this.keepAliveDeactivated = false;
         }
     }
 
@@ -687,13 +741,13 @@ export class Module {
     }
 
     
-    private runCompositionHooks(eventName:string): void {
+    private runCompositionHooks(eventName:string, ...args: unknown[]): void {
         const hooks = this.compositionHooks.get(eventName);
         if(!hooks || hooks.length === 0){
             return;
         }
         for(const hook of hooks){
-            hook.apply(this, [this.model]);
+            hook.apply(this, args);
         }
     }
 
@@ -755,6 +809,25 @@ export class Module {
     }
 }
 
+function registerModuleDefinition(item: unknown): void {
+    if(!item){
+        return;
+    }
+    if(typeof item === "function"){
+        ModuleFactory.addClass(item);
+        return;
+    }
+    if(typeof item === "object"){
+        const namedModule = item as {
+            name?: string;
+            module?: unknown;
+        };
+        if(typeof namedModule.module === "function"){
+            ModuleFactory.addClass(namedModule.module, namedModule.name);
+        }
+    }
+}
+
 function syncReactiveState(target: object, nextValue: object): void {
     const rawTarget = <object><unknown>toRaw(target);
     for(const key of Reflect.ownKeys(rawTarget)){
@@ -769,5 +842,15 @@ function syncReactiveState(target: object, nextValue: object): void {
 
 function normalizeHotId(hotId?: string): string {
     return typeof hotId === 'string' ? hotId.replace(/\\/g, '/') : '';
+}
+
+function isKeepAliveManagedValue(value: boolean | { disabled?: boolean } | undefined): boolean {
+    if(value === undefined || value === false){
+        return false;
+    }
+    if(value === true){
+        return true;
+    }
+    return !value.disabled;
 }
 

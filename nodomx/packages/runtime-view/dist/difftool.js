@@ -202,6 +202,12 @@ export class DiffTool {
         }
         function shouldUpdateNode(nextNode, prevNode) {
             var _a, _b, _c, _d, _e, _f;
+            if (hasTeleportStateChanged(nextNode, prevNode)) {
+                return true;
+            }
+            if (hasTransitionStateChanged(nextNode, prevNode)) {
+                return true;
+            }
             if (!(nextNode.staticNum || prevNode.staticNum || prevNode.key === 1)) {
                 return false;
             }
@@ -230,6 +236,12 @@ export class DiffTool {
             return false;
         }
         function isChanged(nextNode, prevNode) {
+            if (hasTeleportStateChanged(nextNode, prevNode)) {
+                return true;
+            }
+            if (hasTransitionStateChanged(nextNode, prevNode)) {
+                return true;
+            }
             for (const prop of ["props", "assets", "events"]) {
                 if ((!nextNode[prop] && prevNode[prop]) || (nextNode[prop] && !prevNode[prop])) {
                     return true;
@@ -259,6 +271,35 @@ export class DiffTool {
             return changed;
         }
     }
+}
+function hasTeleportStateChanged(nextNode, prevNode) {
+    const nextTeleportNode = nextNode;
+    const prevTeleportNode = prevNode;
+    return nextTeleportNode.teleportTarget !== prevTeleportNode.teleportTarget
+        || nextTeleportNode.teleportDisabled !== prevTeleportNode.teleportDisabled;
+}
+function hasTransitionStateChanged(nextNode, prevNode) {
+    const nextTransition = nextNode.transition;
+    const prevTransition = prevNode.transition;
+    if (nextTransition === prevTransition) {
+        return false;
+    }
+    if (!nextTransition || !prevTransition) {
+        return nextTransition !== prevTransition;
+    }
+    return nextTransition.name !== prevTransition.name
+        || nextTransition.duration !== prevTransition.duration
+        || nextTransition.enterDuration !== prevTransition.enterDuration
+        || nextTransition.leaveDuration !== prevTransition.leaveDuration
+        || nextTransition.moveDuration !== prevTransition.moveDuration
+        || nextTransition.enterFromClass !== prevTransition.enterFromClass
+        || nextTransition.enterActiveClass !== prevTransition.enterActiveClass
+        || nextTransition.enterToClass !== prevTransition.enterToClass
+        || nextTransition.leaveFromClass !== prevTransition.leaveFromClass
+        || nextTransition.leaveActiveClass !== prevTransition.leaveActiveClass
+        || nextTransition.leaveToClass !== prevTransition.leaveToClass
+        || nextTransition.moveClass !== prevTransition.moveClass
+        || nextTransition.group !== prevTransition.group;
 }
 function canUseBlockDiff(node) {
     return !!node.dynamicChildKeys && node.dynamicChildKeys.length > 0;

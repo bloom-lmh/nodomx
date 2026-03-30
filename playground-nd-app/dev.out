@@ -1,0 +1,4 @@
+
+> dev
+> rollup -c rollup.config.mjs -w --watch.stdin false
+

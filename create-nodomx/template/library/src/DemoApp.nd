@@ -1,0 +1,33 @@
+<template>
+  <main class="shell">
+    <p class="eyebrow">NodomX library starter</p>
+    <NodomBadge label={{label}} />
+  </main>
+</template>
+
+<script setup>
+import { useState } from "nodomx";
+import NodomBadge from "./NodomBadge.nd";
+
+const label = useState("Ship reusable .nd components");
+</script>
+
+<style scoped>
+.shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  gap: 18px;
+  padding: 32px;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #f8fafc 0%, #dbeafe 100%);
+}
+
+.eyebrow {
+  margin: 0;
+  color: #0f766e;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+</style>

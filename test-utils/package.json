@@ -1,0 +1,44 @@
+{
+  "name": "@nodomx/test-utils",
+  "version": "0.2.4",
+  "description": "Official testing helpers for mounting and interacting with NodomX components.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bloom-lmh/nodomx.git",
+    "directory": "test-utils"
+  },
+  "homepage": "https://github.com/bloom-lmh/nodomx",
+  "bugs": {
+    "url": "https://github.com/bloom-lmh/nodomx/issues"
+  },
+  "keywords": [
+    "nodomx",
+    "test-utils",
+    "testing",
+    "jsdom"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node ./tests/mount.smoke.mjs",
+    "test": "node ./tests/mount.smoke.mjs"
+  },
+  "dependencies": {
+    "jsdom": "^29.0.1",
+    "nodomx": "^0.2.4"
+  }
+}

@@ -1,0 +1,63 @@
+<template>
+  <div class="app-shell">
+    <StarterHero
+      title={{title}}
+      headline={{headline}}
+      count={{count}}
+      doubleCount={{doubleCount}}
+    />
+    <div class="actions">
+      <button e-click="increment">increment</button>
+      <button class="ghost" e-click="reset">reset</button>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { useComputed, useState } from "nodomx";
+import StarterHero from "./components/StarterHero.nd";
+
+const title = useState("NodomX + Vite");
+const headline = useState("Build with .nd single-file components and Vite HMR");
+const count = useState(1);
+const doubleCount = useComputed(() => count.value * 2);
+
+const increment = () => {
+  count.value++;
+};
+
+const reset = () => {
+  count.value = 1;
+};
+</script>
+
+<style scoped>
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  gap: 20px;
+  padding: 32px;
+  box-sizing: border-box;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: #0f766e;
+  color: #fff;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+button.ghost {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+</style>

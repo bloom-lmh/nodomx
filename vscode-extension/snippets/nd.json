@@ -21,5 +21,53 @@
       "</style>"
     ],
     "description": "Create a NodomX .nd single-file component"
+  },
+  "NodomX defineModel Child": {
+    "prefix": "nd-model-child",
+    "body": [
+      "<template>",
+      "  <div class=\"${1:model-child}\">",
+      "    <p>{{${2:modelValue}}}</p>",
+      "    <button e-click=\"updateValue\">update</button>",
+      "  </div>",
+      "</template>",
+      "",
+      "<script setup>",
+      "import { defineModel } from \"nodomx\";",
+      "",
+      "const ${2:modelValue} = defineModel(\"${3:modelValue}\");",
+      "",
+      "const updateValue = () => {",
+      "  ${2:modelValue}.value = ${4:1};",
+      "};",
+      "</script>"
+    ],
+    "description": "Create a child component that exposes a defineModel() binding"
+  },
+  "NodomX TransitionGroup": {
+    "prefix": "nd-transition-group",
+    "body": [
+      "<TransitionGroup name=\"${1:fade}\" duration=\"${2:180}\">",
+      "  <div x-repeat={{${3:items}}} key={{${4:id}}}>",
+      "    $0",
+      "  </div>",
+      "</TransitionGroup>"
+    ],
+    "description": "Create a keyed TransitionGroup list wrapper"
+  },
+  "NodomX Suspense": {
+    "prefix": "nd-suspense",
+    "body": [
+      "<Suspense fallback=\"${1:Loading...}\" error=\"${2:Load failed.}\" timeout=\"${3:0}\">",
+      "  <${4:AsyncPanel} />",
+      "  <slot name=\"fallback\">",
+      "    <div class=\"${5:suspense-fallback}\">${6:Loading panel...}</div>",
+      "  </slot>",
+      "  <slot name=\"error\">",
+      "    <div class=\"${7:suspense-error}\">${8:Panel failed to load.}</div>",
+      "  </slot>",
+      "</Suspense>"
+    ],
+    "description": "Create a Suspense wrapper with async content, fallback, and error boundaries"
   }
 }

@@ -1,0 +1,23 @@
+{
+  "name": "__PROJECT_NAME__",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && npm run ssg",
+    "preview": "vite preview",
+    "ssr:render": "node ./scripts/render-ssr.mjs",
+    "ssg": "node ./scripts/generate-static.mjs"
+  },
+  "dependencies": {
+    "@nodomx/nd-compiler": "__ND_COMPILER_SPEC__",
+    "@nodomx/reactivity": "__NODOM_REACTIVITY_SPEC__",
+    "@nodomx/runtime-core": "__NODOM_RUNTIME_CORE_SPEC__",
+    "@nodomx/ssr": "__NODOM_SSR_SPEC__",
+    "nodomx": "__NODOM_SPEC__"
+  },
+  "devDependencies": {
+    "vite": "^8.0.3",
+    "vite-plugin-nodomx": "__VITE_PLUGIN_SPEC__"
+  }
+}

@@ -1,7 +1,22 @@
 ﻿import { Module } from "./module";
 import { ModuleFactory } from "@nodomx/runtime-registry";
-import { RenderedDom } from "@nodomx/shared";
+import { KeepAliveConfig, KeepAliveMatchPattern, RenderedDom } from "@nodomx/shared";
 import { VirtualDom } from "@nodomx/runtime-template";
+import { Renderer } from "@nodomx/runtime-view";
+
+type KeepAliveRenderedDom = RenderedDom & {
+    keepAlive?: boolean | KeepAliveConfig;
+    transition?: unknown;
+};
+
+type KeepAliveCacheEntry = {
+    domKey: number | string;
+    moduleId: number;
+};
+
+type RendererWithLeaveTransition = typeof Renderer & {
+    runLeaveTransition?: (module: Module, dom: RenderedDom, removeNode: () => void) => boolean;
+};
 
 /**
  * dom管理器
@@ -23,6 +38,8 @@ export class DomManager{
      * 渲染后的dom树
      */
     public renderedTree:RenderedDom;
+
+    private keepAliveScopes:Map<string, KeepAliveCacheEntry[]> = new Map();
 
     /**
      * 构造方法
@@ -108,11 +125,35 @@ export class DomManager{
      * @param dom -         虚拟dom
      * @param destroy -     是否销毁，当dom带有子模块时，如果设置为true，则子模块执行destroy，否则执行unmount
      */
-    public freeNode(dom:RenderedDom,destroy?:boolean){
+    public freeNode(dom:RenderedDom,destroy?:boolean,skipTransition?:boolean){
+        const managedDom = dom as KeepAliveRenderedDom;
+        const transitionDom = !skipTransition && destroy ? findTransitionDom(dom) : undefined;
+        let retainDomParams = false;
+        if(transitionDom){
+            const didScheduleLeave = (Renderer as RendererWithLeaveTransition).runLeaveTransition?.(
+                this.module,
+                transitionDom,
+                () => this.freeNode(dom, destroy, true)
+            ) || false;
+            if(didScheduleLeave){
+                return;
+            }
+        }
         if(dom.childModuleId){  //子模块
             const m = ModuleFactory.get(dom.childModuleId);
             if(m){
-                destroy?m.destroy():m.unmount();
+                const keepAliveConfig = normalizeKeepAliveConfig(managedDom.keepAlive, dom);
+                if(shouldCacheKeepAlive(keepAliveConfig, m as Module)){
+                    retainDomParams = true;
+                    (m as Module & { setKeepAliveManaged?: (managed: boolean) => void }).setKeepAliveManaged?.(true);
+                    const evictedEntries = this.registerKeepAliveCache(dom, m as Module, keepAliveConfig as KeepAliveConfig);
+                    m.unmount(true);
+                    this.evictKeepAliveEntries(evictedEntries);
+                }else{
+                    (m as Module & { setKeepAliveManaged?: (managed: boolean) => void }).setKeepAliveManaged?.(false);
+                    this.removeKeepAliveCacheEntry(dom.key);
+                    destroy?m.destroy():m.unmount();
+                }
             }
         }else{      //普通节点
             const el = dom.node;
@@ -121,7 +162,7 @@ export class DomManager{
             //子节点递归操作
             if(dom.children){
                 for(const d of dom.children){
-                    this.freeNode(d,destroy);
+                    this.freeNode(d,destroy,skipTransition);
                 }
             }
             // 从html移除
@@ -130,10 +171,133 @@ export class DomManager{
             }
         }
         //清除缓存
-        const m1 = ModuleFactory.get(dom.moduleId);
-        if(m1){
-            m1.objectManager.clearDomParams(dom.key);
+        if(!retainDomParams){
+            const m1 = ModuleFactory.get(dom.moduleId);
+            if(m1){
+                m1.objectManager.clearDomParams(dom.key);
+            }
         }
     }
+
+    private registerKeepAliveCache(dom: RenderedDom, module: Module, config: KeepAliveConfig): KeepAliveCacheEntry[] {
+        const scopeKey = getKeepAliveScopeKey(config, dom.key);
+        const entries = this.keepAliveScopes.get(scopeKey) || [];
+        const filtered = entries.filter(item => item.domKey !== dom.key && item.moduleId !== module.id);
+        filtered.push({
+            domKey: dom.key,
+            moduleId: module.id
+        });
+        const max = typeof config.max === 'number' ? config.max : undefined;
+        if(max === undefined || filtered.length <= max){
+            this.keepAliveScopes.set(scopeKey, filtered);
+            return [];
+        }
+        const evictedEntries = filtered.splice(0, filtered.length - max);
+        if(filtered.length > 0){
+            this.keepAliveScopes.set(scopeKey, filtered);
+        }else{
+            this.keepAliveScopes.delete(scopeKey);
+        }
+        return evictedEntries;
+    }
+
+    private evictKeepAliveEntries(entries: KeepAliveCacheEntry[]): void {
+        for(const entry of entries){
+            const cachedModule = this.module.objectManager.getDomParam(entry.domKey, '$savedModule') as Module | undefined;
+            this.module.objectManager.clearDomParams(entry.domKey);
+            this.detachChildModule(cachedModule);
+            (cachedModule as Module & { setKeepAliveManaged?: (managed: boolean) => void })?.setKeepAliveManaged?.(false);
+            cachedModule?.destroy();
+        }
+    }
+
+    private removeKeepAliveCacheEntry(domKey: number | string): void {
+        for(const [scopeKey, entries] of this.keepAliveScopes.entries()){
+            const filtered = entries.filter(item => item.domKey !== domKey);
+            if(filtered.length === entries.length){
+                continue;
+            }
+            if(filtered.length > 0){
+                this.keepAliveScopes.set(scopeKey, filtered);
+            }else{
+                this.keepAliveScopes.delete(scopeKey);
+            }
+        }
+    }
+
+    private detachChildModule(module?: Module): void {
+        if(!module){
+            return;
+        }
+        const index = this.module.children.indexOf(module);
+        if(index !== -1){
+            this.module.children.splice(index, 1);
+        }
+    }
+}
+
+function normalizeKeepAliveConfig(value: boolean | KeepAliveConfig | undefined, dom: RenderedDom): KeepAliveConfig | undefined {
+    if(value === undefined || value === false){
+        return undefined;
+    }
+    if(value === true){
+        return {
+            disabled: false,
+            scopeKey: dom.key
+        };
+    }
+    return value;
+}
+
+function shouldCacheKeepAlive(config: KeepAliveConfig | undefined, module: Module): boolean {
+    if(!config || config.disabled){
+        return false;
+    }
+    if(typeof config.max === 'number' && config.max <= 0){
+        return false;
+    }
+    const moduleName = module.constructor.name;
+    if(config.include && !matchesKeepAlivePattern(config.include, moduleName)){
+        return false;
+    }
+    if(config.exclude && matchesKeepAlivePattern(config.exclude, moduleName)){
+        return false;
+    }
+    return true;
+}
+
+function matchesKeepAlivePattern(pattern: KeepAliveMatchPattern, moduleName: string): boolean {
+    if(pattern instanceof RegExp){
+        return pattern.test(moduleName);
+    }
+    if(Array.isArray(pattern)){
+        return pattern.some(item => matchesKeepAlivePattern(item, moduleName));
+    }
+    if(typeof pattern === 'string'){
+        return pattern
+            .split(',')
+            .map(item => item.trim())
+            .filter(item => item.length > 0)
+            .includes(moduleName);
+    }
+    return false;
+}
+
+function getKeepAliveScopeKey(config: KeepAliveConfig, fallbackKey: number | string): string {
+    return String(config.scopeKey ?? fallbackKey);
+}
+
+function findTransitionDom(dom: RenderedDom): RenderedDom | undefined {
+    const managedDom = dom as KeepAliveRenderedDom;
+    if (managedDom.transition && dom.node instanceof Element) {
+        return dom;
+    }
+    for (const child of dom.children || []) {
+        const matched = findTransitionDom(child);
+        if (matched) {
+            return matched;
+        }
+    }
+    return undefined;
 }
 

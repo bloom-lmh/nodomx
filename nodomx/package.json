@@ -26,7 +26,7 @@
     "test:router": "node ./tests/router.smoke.mjs",
     "test:router-preload": "node ./tests/router-preload.smoke.mjs",
     "docs:normalize-api": "node ./scripts/normalize-api-docs.mjs",
-    "build": "node ./scripts/clean-dist.mjs && rollup -c rollup.config.mjs && node ./scripts/trim-dist.mjs",
+    "build": "node ./scripts/clean-dist.mjs && node ./scripts/clean-rollup-cache.mjs && rollup -c rollup.config.mjs && node ./scripts/trim-dist.mjs",
     "watch": "rollup -c rollup.config.mjs -w"
   },
   "author": "weblabsw",

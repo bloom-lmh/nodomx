@@ -1,0 +1,101 @@
+<template>
+  <section class="ssr-shell">
+    <span class="eyebrow">NodomX SSR</span>
+    <h1>{{title}}</h1>
+    <p class="summary">{{summary}}</p>
+    <div class="metrics">
+      <article class="metric">
+        <strong>{{count}}</strong>
+        <span>count</span>
+      </article>
+      <article class="metric">
+        <strong>{{count * 2}}</strong>
+        <span>double</span>
+      </article>
+    </div>
+    <button class="action" e-click="increment">increment</button>
+  </section>
+</template>
+
+<script setup>
+import { useState } from "nodomx";
+
+const count = useState(3);
+const title = "SSR and static generation starter";
+const summary = "Render on the server, resume state on the client, and emit static files for deployment.";
+
+const increment = () => {
+  count.value += 1;
+};
+</script>
+
+<style scoped>
+.ssr-shell {
+  min-height: 100vh;
+  padding: 40px 24px;
+  color: #123;
+  background:
+    radial-gradient(circle at top left, rgba(10, 162, 146, 0.18), transparent 38%),
+    linear-gradient(180deg, #f8fbfb 0%, #eef7f5 100%);
+  box-sizing: border-box;
+}
+
+.eyebrow {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0b5d56;
+  background: rgba(11, 93, 86, 0.1);
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 40px;
+  line-height: 1.1;
+}
+
+.summary {
+  max-width: 720px;
+  margin: 0 0 28px;
+  color: #456;
+  line-height: 1.7;
+}
+
+.metrics {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: 24px;
+}
+
+.metric {
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 30px rgba(18, 53, 60, 0.08);
+}
+
+.metric strong {
+  display: block;
+  font-size: 32px;
+}
+
+.metric span {
+  color: #567;
+}
+
+.action {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #0f766e, #0ea5a4);
+  cursor: pointer;
+}
+</style>

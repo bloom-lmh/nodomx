@@ -1,0 +1,103 @@
+<template>
+  <section class="layout">
+    <HeroCard />
+    <div class="grid">
+      <ProjectStructure />
+      <section class="panel">
+        <h3>Counter demo</h3>
+        <p class="copy">count: {{count}}</p>
+        <p class="copy">double: {{doubleCount}}</p>
+        <div class="actions">
+          <button e-click="increment">increment</button>
+          <button class="ghost" e-click="reset">reset</button>
+        </div>
+      </section>
+    </div>
+  </section>
+</template>
+
+<script>
+import { useComputed, useState } from "nodomx";
+import HeroCard from "../components/HeroCard.nd";
+import ProjectStructure from "../components/ProjectStructure.nd";
+
+export default {
+  modules: [HeroCard, ProjectStructure],
+  setup() {
+    const count = useState(1);
+    const doubleCount = useComputed(() => count.value * 2);
+
+    const increment = () => {
+      count.value++;
+    };
+
+    const reset = () => {
+      count.value = 1;
+    };
+
+    return {
+      count,
+      doubleCount,
+      increment,
+      reset
+    };
+  }
+};
+</script>
+
+<style scoped>
+.layout {
+  display: grid;
+  gap: 20px;
+}
+
+.grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel {
+  padding: 24px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+}
+
+h3 {
+  margin: 0 0 12px;
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.copy {
+  margin: 8px 0;
+  color: #334155;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: #0f766e;
+  color: #fff;
+  cursor: pointer;
+}
+
+.ghost {
+  background: #dbe4ee;
+  color: #0f172a;
+}
+
+@media (max-width: 840px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

@@ -40,5 +40,8 @@
   "scripts": {
     "build": "node ./tests/compiler.smoke.mjs",
     "test": "node ./tests/compiler.smoke.mjs"
+  },
+  "dependencies": {
+    "typescript": "^5.9.2"
   }
 }

@@ -2853,125 +2853,6 @@ class DefineElement {
 }
 
 /**
- * dom管理器
- * @remarks
- * 用于管理module的虚拟dom树，渲染树，html节点
- */
-class DomManager {
-    /**
-     * 构造方法
-     * @param module -  所属模块
-     */
-    constructor(module) {
-        this.module = module;
-    }
-    /**
-     * 从virtual dom 树获取虚拟dom节点
-     * @param key - dom key 或 props键值对
-     * @returns     编译后虚拟节点
-     */
-    getVirtualDom(key) {
-        if (!this.vdomTree) {
-            return null;
-        }
-        return find(this.vdomTree);
-        function find(dom) {
-            //对象表示未props查找
-            if (typeof key === 'object') {
-                if (!Object.keys(key).find(k => key[k] !== dom.props.get(k))) {
-                    return dom;
-                }
-            }
-            else if (dom.key === key) { //key查找
-                return dom;
-            }
-            if (dom.children) {
-                for (const d of dom.children) {
-                    const d1 = find(d);
-                    if (d1) {
-                        return d1;
-                    }
-                }
-            }
-        }
-    }
-    /**
-     * 从渲染树获取key对应的渲染节点
-     * @param key - dom key 或 props键值对
-     * @returns     渲染后虚拟节点
-     */
-    getRenderedDom(key) {
-        if (!this.renderedTree) {
-            return;
-        }
-        return find(this.renderedTree, key);
-        /**
-         * 递归查找
-         * @param dom - 渲染dom
-         * @param key -   待查找key
-         * @returns     key对应renderdom 或 undefined
-         */
-        function find(dom, key) {
-            //对象表示未props查找
-            if (typeof key === 'object') {
-                if (dom.props && !Object.keys(key).find(k => key[k] !== dom.props[k])) {
-                    return dom;
-                }
-            }
-            else if (dom.key === key) { //key查找
-                return dom;
-            }
-            if (dom.children) {
-                for (const d of dom.children) {
-                    if (!d) {
-                        continue;
-                    }
-                    const d1 = find(d, key);
-                    if (d1) {
-                        return d1;
-                    }
-                }
-            }
-        }
-    }
-    /**
-     * 释放节点
-     * @remarks
-     * 释放操作包括：如果被释放节点包含子模块，则子模块需要unmount；释放对应节点资源
-     * @param dom -         虚拟dom
-     * @param destroy -     是否销毁，当dom带有子模块时，如果设置为true，则子模块执行destroy，否则执行unmount
-     */
-    freeNode(dom, destroy) {
-        if (dom.childModuleId) { //子模块
-            const m = ModuleFactory.get(dom.childModuleId);
-            if (m) {
-                destroy ? m.destroy() : m.unmount();
-            }
-        }
-        else { //普通节点
-            const el = dom.node;
-            //解绑所有事件
-            this.module.eventFactory.removeEvent(dom);
-            //子节点递归操作
-            if (dom.children) {
-                for (const d of dom.children) {
-                    this.freeNode(d, destroy);
-                }
-            }
-            // 从html移除
-            if (el && el.parentElement) {
-                el.parentElement.removeChild(el);
-            }
-        }
-        //清除缓存
-        const m1 = ModuleFactory.get(dom.moduleId);
-        if (m1) {
-            m1.objectManager.clearDomParams(dom.key);
-        }
-    }
-}
-
-/**
  * css 管理器
  * @privateRemarks
  * 针对不同的rule，处理方式不同
@@ -3322,6 +3203,12 @@ class DiffTool {
         }
         function shouldUpdateNode(nextNode, prevNode) {
             var _a, _b, _c, _d, _e, _f;
+            if (hasTeleportStateChanged(nextNode, prevNode)) {
+                return true;
+            }
+            if (hasTransitionStateChanged(nextNode, prevNode)) {
+                return true;
+            }
             if (!(nextNode.staticNum || prevNode.staticNum || prevNode.key === 1)) {
                 return false;
             }
@@ -3350,6 +3237,12 @@ class DiffTool {
             return false;
         }
         function isChanged(nextNode, prevNode) {
+            if (hasTeleportStateChanged(nextNode, prevNode)) {
+                return true;
+            }
+            if (hasTransitionStateChanged(nextNode, prevNode)) {
+                return true;
+            }
             for (const prop of ["props", "assets", "events"]) {
                 if ((!nextNode[prop] && prevNode[prop]) || (nextNode[prop] && !prevNode[prop])) {
                     return true;
@@ -3379,6 +3272,35 @@ class DiffTool {
             return changed;
         }
     }
+}
+function hasTeleportStateChanged(nextNode, prevNode) {
+    const nextTeleportNode = nextNode;
+    const prevTeleportNode = prevNode;
+    return nextTeleportNode.teleportTarget !== prevTeleportNode.teleportTarget
+        || nextTeleportNode.teleportDisabled !== prevTeleportNode.teleportDisabled;
+}
+function hasTransitionStateChanged(nextNode, prevNode) {
+    const nextTransition = nextNode.transition;
+    const prevTransition = prevNode.transition;
+    if (nextTransition === prevTransition) {
+        return false;
+    }
+    if (!nextTransition || !prevTransition) {
+        return nextTransition !== prevTransition;
+    }
+    return nextTransition.name !== prevTransition.name
+        || nextTransition.duration !== prevTransition.duration
+        || nextTransition.enterDuration !== prevTransition.enterDuration
+        || nextTransition.leaveDuration !== prevTransition.leaveDuration
+        || nextTransition.moveDuration !== prevTransition.moveDuration
+        || nextTransition.enterFromClass !== prevTransition.enterFromClass
+        || nextTransition.enterActiveClass !== prevTransition.enterActiveClass
+        || nextTransition.enterToClass !== prevTransition.enterToClass
+        || nextTransition.leaveFromClass !== prevTransition.leaveFromClass
+        || nextTransition.leaveActiveClass !== prevTransition.leaveActiveClass
+        || nextTransition.leaveToClass !== prevTransition.leaveToClass
+        || nextTransition.moveClass !== prevTransition.moveClass
+        || nextTransition.group !== prevTransition.group;
 }
 function canUseBlockDiff(node) {
     return !!node.dynamicChildKeys && node.dynamicChildKeys.length > 0;
@@ -4004,6 +3926,7 @@ function reuseRenderedDom(previousDom, src, model, parent) {
     return previousDom;
 }
 
+const transitionRuntimeStates = new WeakMap();
 class Renderer {
     static setRootEl(rootEl) {
         this.rootEl = rootEl;
@@ -4207,7 +4130,7 @@ class Renderer {
         }
     }
     static updateToHtml(module, dom, oldDom) {
-        var _a;
+        var _a, _b;
         const el = oldDom.node;
         if (!el) {
             dom.node = this.renderToHtml(module, dom, (_a = oldDom.parent) === null || _a === void 0 ? void 0 : _a.node);
@@ -4216,6 +4139,7 @@ class Renderer {
         dom.node = el;
         if (dom.tagName) {
             syncDomState(module, dom, oldDom, el);
+            moveTeleportNode(dom, el, (_b = oldDom.parent) === null || _b === void 0 ? void 0 : _b.node);
         }
         else {
             el.textContent = dom.textContent;
@@ -4227,8 +4151,8 @@ class Renderer {
         if (el && src.tagName && !src.childModuleId) {
             appendChildren(el, src);
         }
-        if (el && parentEl) {
-            parentEl.appendChild(el);
+        if (el) {
+            moveTeleportNode(src, el, parentEl || undefined);
         }
         return el;
         function createElementNode(dom) {
@@ -4267,6 +4191,7 @@ class Renderer {
                 }
             }
             module.eventFactory.handleDomEvent(dom);
+            queueTransitionEnter(module, dom, el);
             return el;
         }
         function createTextNode(dom) {
@@ -4296,6 +4221,53 @@ class Renderer {
                 }
             }
         }
+    }
+    static syncTeleports(dom) {
+        var _a;
+        if (!dom) {
+            return;
+        }
+        if (dom.node) {
+            moveTeleportNode(dom, dom.node, (_a = dom.parent) === null || _a === void 0 ? void 0 : _a.node);
+        }
+        if (dom.children) {
+            for (const child of dom.children) {
+                this.syncTeleports(child);
+            }
+        }
+    }
+    static runLeaveTransition(module, dom, removeNode) {
+        const transition = resolveTransitionDescriptor(dom);
+        const node = dom.node;
+        if (!transition || !(node instanceof Element)) {
+            return false;
+        }
+        const state = getTransitionRuntimeState(node);
+        const { leaveActiveClass, leaveDuration, leaveFromClass, leaveToClass } = transition;
+        cancelTransitionPhase(module, node, state, "enter", transition);
+        cancelTransitionPhase(module, node, state, "leave", transition);
+        state.phase = "leave";
+        emitTransitionHook(module, "onBeforeLeave", node);
+        removeTransitionClasses(node, [
+            transition.enterActiveClass,
+            transition.enterFromClass,
+            transition.enterToClass
+        ]);
+        addTransitionClasses(node, [leaveFromClass, leaveActiveClass]);
+        state.cancelLeaveFrame = scheduleNextFrame(() => {
+            state.cancelLeaveFrame = undefined;
+            removeTransitionClasses(node, [leaveFromClass]);
+            addTransitionClasses(node, [leaveToClass]);
+            emitTransitionHook(module, "onLeave", node);
+            state.cancelLeaveTimer = scheduleDelay(leaveDuration, () => {
+                state.cancelLeaveTimer = undefined;
+                removeTransitionClasses(node, [leaveActiveClass, leaveToClass]);
+                state.phase = undefined;
+                removeNode();
+                emitTransitionHook(module, "onAfterLeave", node);
+            });
+        });
+        return true;
     }
     static handleChangedDoms(module, changeDoms) {
         var _a;
@@ -4341,10 +4313,18 @@ class Renderer {
             if (!parentNode) {
                 continue;
             }
-            const node = item[0] === 1 ? Renderer.renderToHtml(module, item[1], null) : item[1].node;
+            const teleportActive = isActiveTeleport(item[1]);
+            const node = item[0] === 1
+                ? Renderer.renderToHtml(module, item[1], teleportActive ? parentNode : null)
+                : item[1].node;
             if (!node) {
                 continue;
             }
+            if (teleportActive) {
+                moveTeleportNode(item[1], node, parentNode);
+                continue;
+            }
+            const previousRect = item[0] === 4 ? captureTransitionMoveRect(item[1], node) : null;
             let index = item[4];
             const offset = addOrMove.filter(change => {
                 var _a;
@@ -4354,6 +4334,9 @@ class Renderer {
                     && change[5] < index;
             }).length;
             moveNode(node, parentNode, index + offset);
+            if (item[0] === 4) {
+                queueTransitionMove(module, item[1], node, previousRect);
+            }
         }
         for (const key of Object.keys(slotDoms)) {
             const slotModule = ModuleFactory.get(parseInt(key, 10));
@@ -4405,15 +4388,23 @@ class Renderer {
         }
     }
     static replace(module, src, dst) {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         const el = this.renderToHtml(module, src, null);
+        if (isActiveTeleport(src)) {
+            moveTeleportNode(src, el, (_a = dst.parent) === null || _a === void 0 ? void 0 : _a.node);
+            if ((_b = dst.node) === null || _b === void 0 ? void 0 : _b.parentElement) {
+                dst.node.parentElement.removeChild(dst.node);
+            }
+            module.domManager.freeNode(dst, true);
+            return;
+        }
         if (dst.childModuleId) {
             const childModule = ModuleFactory.get(dst.childModuleId);
-            const parentEl = (_b = (_a = childModule === null || childModule === void 0 ? void 0 : childModule.srcDom) === null || _a === void 0 ? void 0 : _a.node) === null || _b === void 0 ? void 0 : _b.parentElement;
+            const parentEl = (_d = (_c = childModule === null || childModule === void 0 ? void 0 : childModule.srcDom) === null || _c === void 0 ? void 0 : _c.node) === null || _d === void 0 ? void 0 : _d.parentElement;
             if (!parentEl) {
                 return;
             }
-            const previousSibling = (_c = childModule.srcDom.node) === null || _c === void 0 ? void 0 : _c.previousSibling;
+            const previousSibling = (_e = childModule.srcDom.node) === null || _e === void 0 ? void 0 : _e.previousSibling;
             childModule.destroy();
             if (previousSibling) {
                 Util.insertAfter(el, previousSibling);
@@ -4426,7 +4417,7 @@ class Renderer {
             }
             return;
         }
-        const parentEl = (_d = dst.node) === null || _d === void 0 ? void 0 : _d.parentElement;
+        const parentEl = (_f = dst.node) === null || _f === void 0 ? void 0 : _f.parentElement;
         if (!parentEl || !dst.node) {
             return;
         }
@@ -4463,6 +4454,12 @@ function cloneRenderBlueprintNode(module, src, blueprint, model, parent, scopeKe
         childrenStructureFlags: src.childrenStructureFlags,
         __skipDiff: false
     };
+    cloned.childModuleId = blueprint.childModuleId;
+    cloned.keepAlive = cloneKeepAliveState(blueprint.keepAlive);
+    cloned.transition = blueprint.transition
+        ? Object.assign({}, blueprint.transition) : undefined;
+    cloned.teleportDisabled = blueprint.teleportDisabled;
+    cloned.teleportTarget = blueprint.teleportTarget;
     if (blueprint.tagName) {
         cloned.tagName = blueprint.tagName;
         cloned.props = blueprint.props ? Object.assign({}, blueprint.props) : {};
@@ -4501,6 +4498,19 @@ function cloneRenderBlueprintNode(module, src, blueprint, model, parent, scopeKe
     }
     return cloned;
 }
+function cloneKeepAliveState(value) {
+    if (!value || typeof value !== "object") {
+        return value;
+    }
+    const cloned = Object.assign({}, value);
+    if (Array.isArray(cloned.include)) {
+        cloned.include = [...cloned.include];
+    }
+    if (Array.isArray(cloned.exclude)) {
+        cloned.exclude = [...cloned.exclude];
+    }
+    return cloned;
+}
 function cacheStaticRenderBlueprint(src, dom) {
     if (!canCacheStaticRenderBlueprint(src) || src.renderBlueprint) {
         return;
@@ -4518,8 +4528,14 @@ function createRenderBlueprint(dom) {
         blockRoot: dom.blockRoot,
         structureFlags: dom.structureFlags,
         moduleId: dom.moduleId,
-        slotModuleId: dom.slotModuleId
+        slotModuleId: dom.slotModuleId,
+        childModuleId: dom.childModuleId
     };
+    blueprint.keepAlive = cloneKeepAliveState(dom.keepAlive);
+    blueprint.transition = dom.transition
+        ? Object.assign({}, dom.transition) : undefined;
+    blueprint.teleportDisabled = dom.teleportDisabled;
+    blueprint.teleportTarget = dom.teleportTarget;
     if (dom.tagName) {
         blueprint.tagName = dom.tagName;
         blueprint.props = dom.props ? Object.assign({}, dom.props) : {};
@@ -4552,7 +4568,23 @@ function createRenderBlueprint(dom) {
 }
 function canCacheStaticRenderBlueprint(src) {
     var _a;
-    return src.hoisted && src.key !== 1 && !((_a = src.directives) === null || _a === void 0 ? void 0 : _a.length);
+    return src.hoisted
+        && src.key !== 1
+        && !((_a = src.directives) === null || _a === void 0 ? void 0 : _a.length)
+        && !hasStatefulRuntimeSubtree(src);
+}
+function hasStatefulRuntimeSubtree(src) {
+    var _a, _b;
+    if ((_a = src.directives) === null || _a === void 0 ? void 0 : _a.some(directive => {
+        var _a, _b, _c, _d;
+        return ((_a = directive.type) === null || _a === void 0 ? void 0 : _a.name) === "module"
+            || ((_b = directive.type) === null || _b === void 0 ? void 0 : _b.name) === "keepalive"
+            || ((_c = directive.type) === null || _c === void 0 ? void 0 : _c.name) === "transition"
+            || ((_d = directive.type) === null || _d === void 0 ? void 0 : _d.name) === "teleport";
+    })) {
+        return true;
+    }
+    return !!((_b = src.children) === null || _b === void 0 ? void 0 : _b.some(child => hasStatefulRuntimeSubtree(child)));
 }
 function normalizePropValue(value) {
     return value === undefined
@@ -4691,6 +4723,506 @@ function syncNamedAsset(el, key, nextAssets, prevAssets) {
         return;
     }
     el[key] = nextValue === undefined ? null : nextValue;
+}
+function resolveTeleportTarget(target) {
+    if (typeof target === "string" && target.trim()) {
+        return document.querySelector(target);
+    }
+    return target instanceof Element ? target : null;
+}
+function moveTeleportNode(dom, node, fallbackParent) {
+    const teleportDom = dom;
+    if (!dom.tagName) {
+        if (fallbackParent) {
+            fallbackParent.appendChild(node);
+        }
+        return;
+    }
+    const teleportTarget = !teleportDom.teleportDisabled
+        ? resolveTeleportTarget(teleportDom.teleportTarget)
+        : null;
+    if (teleportTarget) {
+        if (node.parentElement !== teleportTarget) {
+            teleportTarget.appendChild(node);
+        }
+        return;
+    }
+    if (fallbackParent) {
+        fallbackParent.appendChild(node);
+    }
+}
+function isActiveTeleport(dom) {
+    const teleportDom = dom;
+    return !!dom.tagName && !teleportDom.teleportDisabled && !!resolveTeleportTarget(teleportDom.teleportTarget);
+}
+function captureTransitionMoveRect(dom, node) {
+    const transition = resolveTransitionDescriptor(dom);
+    if (!(transition === null || transition === void 0 ? void 0 : transition.group) || !(node instanceof Element) || typeof node.getBoundingClientRect !== "function") {
+        return null;
+    }
+    return node.getBoundingClientRect();
+}
+function queueTransitionEnter(module, dom, node) {
+    const transition = resolveTransitionDescriptor(dom);
+    if (!transition || !(node instanceof Element)) {
+        return;
+    }
+    const state = getTransitionRuntimeState(node);
+    const { enterActiveClass, enterDuration, enterFromClass, enterToClass, leaveActiveClass, leaveFromClass, leaveToClass } = transition;
+    cancelTransitionPhase(module, node, state, "leave", transition);
+    cancelTransitionPhase(module, node, state, "enter", transition);
+    state.phase = "enter";
+    emitTransitionHook(module, "onBeforeEnter", node);
+    removeTransitionClasses(node, [leaveActiveClass, leaveFromClass, leaveToClass]);
+    addTransitionClasses(node, [enterFromClass, enterActiveClass]);
+    state.cancelEnterFrame = scheduleNextFrame(() => {
+        state.cancelEnterFrame = undefined;
+        removeTransitionClasses(node, [enterFromClass]);
+        addTransitionClasses(node, [enterToClass]);
+        emitTransitionHook(module, "onEnter", node);
+        state.cancelEnterTimer = scheduleDelay(enterDuration, () => {
+            state.cancelEnterTimer = undefined;
+            removeTransitionClasses(node, [enterActiveClass, enterToClass]);
+            state.phase = undefined;
+            emitTransitionHook(module, "onAfterEnter", node);
+        });
+    });
+}
+function queueTransitionMove(module, dom, node, previousRect) {
+    var _a, _b;
+    const transition = resolveTransitionDescriptor(dom);
+    if (!(transition === null || transition === void 0 ? void 0 : transition.group) || !(node instanceof HTMLElement) || !previousRect) {
+        return;
+    }
+    const nextRect = (_a = node.getBoundingClientRect) === null || _a === void 0 ? void 0 : _a.call(node);
+    if (!nextRect) {
+        return;
+    }
+    const deltaX = previousRect.left - nextRect.left;
+    const deltaY = previousRect.top - nextRect.top;
+    if (deltaX === 0 && deltaY === 0) {
+        return;
+    }
+    const state = getTransitionRuntimeState(node);
+    cancelTransitionPhase(module, node, state, "move", transition);
+    const previousTransition = node.style.transition;
+    const previousTransform = node.style.transform;
+    state.restoreMoveStyles = () => {
+        node.style.transition = previousTransition;
+        node.style.transform = previousTransform;
+    };
+    state.phase = "move";
+    emitTransitionHook(module, "onBeforeMove", node);
+    node.style.transition = "none";
+    node.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+    (_b = node.getBoundingClientRect) === null || _b === void 0 ? void 0 : _b.call(node);
+    state.cancelMoveFrame = scheduleNextFrame(() => {
+        state.cancelMoveFrame = undefined;
+        addTransitionClasses(node, [transition.moveClass]);
+        node.style.transition = previousTransition || `transform ${transition.moveDuration}ms ease`;
+        node.style.transform = previousTransform || "";
+        emitTransitionHook(module, "onMove", node);
+        state.cancelMoveTimer = scheduleDelay(transition.moveDuration, () => {
+            var _a;
+            state.cancelMoveTimer = undefined;
+            removeTransitionClasses(node, [transition.moveClass]);
+            (_a = state.restoreMoveStyles) === null || _a === void 0 ? void 0 : _a.call(state);
+            state.restoreMoveStyles = undefined;
+            state.phase = undefined;
+            emitTransitionHook(module, "onAfterMove", node);
+        });
+    });
+}
+function resolveTransitionDescriptor(dom) {
+    const transition = dom.transition;
+    if (!transition) {
+        return null;
+    }
+    const name = typeof transition.name === "string" && transition.name.trim()
+        ? transition.name.trim()
+        : "nd";
+    const duration = normalizeTransitionDuration(transition.duration, 250);
+    return {
+        duration,
+        enterActiveClass: transition.enterActiveClass || `${name}-enter-active`,
+        enterDuration: normalizeTransitionDuration(transition.enterDuration, duration),
+        enterFromClass: transition.enterFromClass || `${name}-enter-from`,
+        enterToClass: transition.enterToClass || `${name}-enter-to`,
+        group: transition.group === true,
+        leaveActiveClass: transition.leaveActiveClass || `${name}-leave-active`,
+        leaveDuration: normalizeTransitionDuration(transition.leaveDuration, duration),
+        leaveFromClass: transition.leaveFromClass || `${name}-leave-from`,
+        leaveToClass: transition.leaveToClass || `${name}-leave-to`,
+        moveClass: transition.moveClass || `${name}-move`,
+        moveDuration: normalizeTransitionDuration(transition.moveDuration, duration),
+        name
+    };
+}
+function normalizeTransitionDuration(value, fallback) {
+    return typeof value === "number" && Number.isFinite(value)
+        ? Math.max(0, value)
+        : fallback;
+}
+function addTransitionClasses(node, classes) {
+    const tokens = classes
+        .flatMap(value => typeof value === "string" ? value.split(/\s+/) : [])
+        .map(value => value.trim())
+        .filter(Boolean);
+    if (tokens.length > 0) {
+        node.classList.add(...tokens);
+    }
+}
+function removeTransitionClasses(node, classes) {
+    const tokens = classes
+        .flatMap(value => typeof value === "string" ? value.split(/\s+/) : [])
+        .map(value => value.trim())
+        .filter(Boolean);
+    if (tokens.length > 0) {
+        node.classList.remove(...tokens);
+    }
+}
+function scheduleNextFrame(callback) {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        let cancelled = false;
+        let secondFrame;
+        const firstFrame = window.requestAnimationFrame(() => {
+            if (cancelled) {
+                return;
+            }
+            secondFrame = window.requestAnimationFrame(() => {
+                if (!cancelled) {
+                    callback();
+                }
+            });
+        });
+        return () => {
+            var _a, _b;
+            cancelled = true;
+            (_a = window.cancelAnimationFrame) === null || _a === void 0 ? void 0 : _a.call(window, firstFrame);
+            if (secondFrame !== undefined) {
+                (_b = window.cancelAnimationFrame) === null || _b === void 0 ? void 0 : _b.call(window, secondFrame);
+            }
+        };
+    }
+    const timerId = window.setTimeout(callback, 16);
+    return () => clearTimeout(timerId);
+}
+function emitTransitionHook(module, eventName, node) {
+    var _a, _b;
+    (_b = (_a = module).emitHook) === null || _b === void 0 ? void 0 : _b.call(_a, eventName, node);
+}
+function scheduleDelay(delay, callback) {
+    const timerId = window.setTimeout(callback, delay);
+    return () => clearTimeout(timerId);
+}
+function getTransitionRuntimeState(node) {
+    let state = transitionRuntimeStates.get(node);
+    if (!state) {
+        state = {};
+        transitionRuntimeStates.set(node, state);
+    }
+    return state;
+}
+function cancelTransitionPhase(module, node, state, phase, transition) {
+    var _a;
+    const cancelFrameKey = phase === "enter"
+        ? "cancelEnterFrame"
+        : phase === "leave"
+            ? "cancelLeaveFrame"
+            : "cancelMoveFrame";
+    const cancelTimerKey = phase === "enter"
+        ? "cancelEnterTimer"
+        : phase === "leave"
+            ? "cancelLeaveTimer"
+            : "cancelMoveTimer";
+    const cancelFrame = state[cancelFrameKey];
+    const cancelTimer = state[cancelTimerKey];
+    if (!cancelFrame && !cancelTimer && state.phase !== phase) {
+        return;
+    }
+    cancelFrame === null || cancelFrame === void 0 ? void 0 : cancelFrame();
+    cancelTimer === null || cancelTimer === void 0 ? void 0 : cancelTimer();
+    state[cancelFrameKey] = undefined;
+    state[cancelTimerKey] = undefined;
+    if (phase === "move") {
+        removeTransitionClasses(node, [transition.moveClass]);
+        (_a = state.restoreMoveStyles) === null || _a === void 0 ? void 0 : _a.call(state);
+        state.restoreMoveStyles = undefined;
+    }
+    else {
+        const isEnter = phase === "enter";
+        removeTransitionClasses(node, isEnter
+            ? [transition.enterActiveClass, transition.enterFromClass, transition.enterToClass]
+            : [transition.leaveActiveClass, transition.leaveFromClass, transition.leaveToClass]);
+    }
+    if (state.phase === phase) {
+        emitTransitionHook(module, phase === "enter"
+            ? "onEnterCancelled"
+            : phase === "leave"
+                ? "onLeaveCancelled"
+                : "onMoveCancelled", node);
+        state.phase = undefined;
+    }
+}
+
+/**
+ * dom管理器
+ * @remarks
+ * 用于管理module的虚拟dom树，渲染树，html节点
+ */
+class DomManager {
+    /**
+     * 构造方法
+     * @param module -  所属模块
+     */
+    constructor(module) {
+        this.keepAliveScopes = new Map();
+        this.module = module;
+    }
+    /**
+     * 从virtual dom 树获取虚拟dom节点
+     * @param key - dom key 或 props键值对
+     * @returns     编译后虚拟节点
+     */
+    getVirtualDom(key) {
+        if (!this.vdomTree) {
+            return null;
+        }
+        return find(this.vdomTree);
+        function find(dom) {
+            //对象表示未props查找
+            if (typeof key === 'object') {
+                if (!Object.keys(key).find(k => key[k] !== dom.props.get(k))) {
+                    return dom;
+                }
+            }
+            else if (dom.key === key) { //key查找
+                return dom;
+            }
+            if (dom.children) {
+                for (const d of dom.children) {
+                    const d1 = find(d);
+                    if (d1) {
+                        return d1;
+                    }
+                }
+            }
+        }
+    }
+    /**
+     * 从渲染树获取key对应的渲染节点
+     * @param key - dom key 或 props键值对
+     * @returns     渲染后虚拟节点
+     */
+    getRenderedDom(key) {
+        if (!this.renderedTree) {
+            return;
+        }
+        return find(this.renderedTree, key);
+        /**
+         * 递归查找
+         * @param dom - 渲染dom
+         * @param key -   待查找key
+         * @returns     key对应renderdom 或 undefined
+         */
+        function find(dom, key) {
+            //对象表示未props查找
+            if (typeof key === 'object') {
+                if (dom.props && !Object.keys(key).find(k => key[k] !== dom.props[k])) {
+                    return dom;
+                }
+            }
+            else if (dom.key === key) { //key查找
+                return dom;
+            }
+            if (dom.children) {
+                for (const d of dom.children) {
+                    if (!d) {
+                        continue;
+                    }
+                    const d1 = find(d, key);
+                    if (d1) {
+                        return d1;
+                    }
+                }
+            }
+        }
+    }
+    /**
+     * 释放节点
+     * @remarks
+     * 释放操作包括：如果被释放节点包含子模块，则子模块需要unmount；释放对应节点资源
+     * @param dom -         虚拟dom
+     * @param destroy -     是否销毁，当dom带有子模块时，如果设置为true，则子模块执行destroy，否则执行unmount
+     */
+    freeNode(dom, destroy, skipTransition) {
+        var _a, _b, _c, _d, _e, _f;
+        const managedDom = dom;
+        const transitionDom = !skipTransition && destroy ? findTransitionDom(dom) : undefined;
+        let retainDomParams = false;
+        if (transitionDom) {
+            const didScheduleLeave = ((_b = (_a = Renderer).runLeaveTransition) === null || _b === void 0 ? void 0 : _b.call(_a, this.module, transitionDom, () => this.freeNode(dom, destroy, true))) || false;
+            if (didScheduleLeave) {
+                return;
+            }
+        }
+        if (dom.childModuleId) { //子模块
+            const m = ModuleFactory.get(dom.childModuleId);
+            if (m) {
+                const keepAliveConfig = normalizeKeepAliveConfig(managedDom.keepAlive, dom);
+                if (shouldCacheKeepAlive(keepAliveConfig, m)) {
+                    retainDomParams = true;
+                    (_d = (_c = m).setKeepAliveManaged) === null || _d === void 0 ? void 0 : _d.call(_c, true);
+                    const evictedEntries = this.registerKeepAliveCache(dom, m, keepAliveConfig);
+                    m.unmount(true);
+                    this.evictKeepAliveEntries(evictedEntries);
+                }
+                else {
+                    (_f = (_e = m).setKeepAliveManaged) === null || _f === void 0 ? void 0 : _f.call(_e, false);
+                    this.removeKeepAliveCacheEntry(dom.key);
+                    destroy ? m.destroy() : m.unmount();
+                }
+            }
+        }
+        else { //普通节点
+            const el = dom.node;
+            //解绑所有事件
+            this.module.eventFactory.removeEvent(dom);
+            //子节点递归操作
+            if (dom.children) {
+                for (const d of dom.children) {
+                    this.freeNode(d, destroy, skipTransition);
+                }
+            }
+            // 从html移除
+            if (el && el.parentElement) {
+                el.parentElement.removeChild(el);
+            }
+        }
+        //清除缓存
+        if (!retainDomParams) {
+            const m1 = ModuleFactory.get(dom.moduleId);
+            if (m1) {
+                m1.objectManager.clearDomParams(dom.key);
+            }
+        }
+    }
+    registerKeepAliveCache(dom, module, config) {
+        const scopeKey = getKeepAliveScopeKey(config, dom.key);
+        const entries = this.keepAliveScopes.get(scopeKey) || [];
+        const filtered = entries.filter(item => item.domKey !== dom.key && item.moduleId !== module.id);
+        filtered.push({
+            domKey: dom.key,
+            moduleId: module.id
+        });
+        const max = typeof config.max === 'number' ? config.max : undefined;
+        if (max === undefined || filtered.length <= max) {
+            this.keepAliveScopes.set(scopeKey, filtered);
+            return [];
+        }
+        const evictedEntries = filtered.splice(0, filtered.length - max);
+        if (filtered.length > 0) {
+            this.keepAliveScopes.set(scopeKey, filtered);
+        }
+        else {
+            this.keepAliveScopes.delete(scopeKey);
+        }
+        return evictedEntries;
+    }
+    evictKeepAliveEntries(entries) {
+        var _a;
+        for (const entry of entries) {
+            const cachedModule = this.module.objectManager.getDomParam(entry.domKey, '$savedModule');
+            this.module.objectManager.clearDomParams(entry.domKey);
+            this.detachChildModule(cachedModule);
+            (_a = cachedModule === null || cachedModule === void 0 ? void 0 : cachedModule.setKeepAliveManaged) === null || _a === void 0 ? void 0 : _a.call(cachedModule, false);
+            cachedModule === null || cachedModule === void 0 ? void 0 : cachedModule.destroy();
+        }
+    }
+    removeKeepAliveCacheEntry(domKey) {
+        for (const [scopeKey, entries] of this.keepAliveScopes.entries()) {
+            const filtered = entries.filter(item => item.domKey !== domKey);
+            if (filtered.length === entries.length) {
+                continue;
+            }
+            if (filtered.length > 0) {
+                this.keepAliveScopes.set(scopeKey, filtered);
+            }
+            else {
+                this.keepAliveScopes.delete(scopeKey);
+            }
+        }
+    }
+    detachChildModule(module) {
+        if (!module) {
+            return;
+        }
+        const index = this.module.children.indexOf(module);
+        if (index !== -1) {
+            this.module.children.splice(index, 1);
+        }
+    }
+}
+function normalizeKeepAliveConfig(value, dom) {
+    if (value === undefined || value === false) {
+        return undefined;
+    }
+    if (value === true) {
+        return {
+            disabled: false,
+            scopeKey: dom.key
+        };
+    }
+    return value;
+}
+function shouldCacheKeepAlive(config, module) {
+    if (!config || config.disabled) {
+        return false;
+    }
+    if (typeof config.max === 'number' && config.max <= 0) {
+        return false;
+    }
+    const moduleName = module.constructor.name;
+    if (config.include && !matchesKeepAlivePattern(config.include, moduleName)) {
+        return false;
+    }
+    if (config.exclude && matchesKeepAlivePattern(config.exclude, moduleName)) {
+        return false;
+    }
+    return true;
+}
+function matchesKeepAlivePattern(pattern, moduleName) {
+    if (pattern instanceof RegExp) {
+        return pattern.test(moduleName);
+    }
+    if (Array.isArray(pattern)) {
+        return pattern.some(item => matchesKeepAlivePattern(item, moduleName));
+    }
+    if (typeof pattern === 'string') {
+        return pattern
+            .split(',')
+            .map(item => item.trim())
+            .filter(item => item.length > 0)
+            .includes(moduleName);
+    }
+    return false;
+}
+function getKeepAliveScopeKey(config, fallbackKey) {
+    var _a;
+    return String((_a = config.scopeKey) !== null && _a !== void 0 ? _a : fallbackKey);
+}
+function findTransitionDom(dom) {
+    const managedDom = dom;
+    if (managedDom.transition && dom.node instanceof Element) {
+        return dom;
+    }
+    for (const child of dom.children || []) {
+        const matched = findTransitionDom(child);
+        if (matched) {
+            return matched;
+        }
+    }
+    return undefined;
 }
 
 /**
@@ -5133,6 +5665,8 @@ class Module {
         this.compositionCleanups = [];
         this.compositionHooks = new Map();
         this.dirtyPaths = new Set(["*"]);
+        this.keepAliveManaged = false;
+        this.keepAliveDeactivated = false;
         this.id = id || Util.genId();
         this.domManager = new DomManager(this);
         this.objectManager = new ObjectManager(this);
@@ -5143,8 +5677,8 @@ class Module {
     init() {
         this.state = EModuleState.INIT;
         if (Array.isArray(this.modules)) {
-            for (const cls of this.modules) {
-                ModuleFactory.addClass(cls);
+            for (const item of this.modules) {
+                registerModuleDefinition(item);
             }
             delete this.modules;
         }
@@ -5249,11 +5783,14 @@ class Module {
         this.dirtyPaths.add(path);
     }
     mount() {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         if (this !== ModuleFactory.getMain() && !((_b = (_a = this.srcDom) === null || _a === void 0 ? void 0 : _a.node) === null || _b === void 0 ? void 0 : _b.parentElement)) {
             return;
         }
-        this.doModuleEvent('onBeforeMount');
+        const isKeepAliveReactivation = this.keepAliveManaged && this.keepAliveDeactivated;
+        if (!isKeepAliveReactivation) {
+            this.doModuleEvent('onBeforeMount');
+        }
         const rootEl = new DocumentFragment();
         const el = Renderer.renderToHtml(this, this.domManager.renderedTree, rootEl);
         if (this === ModuleFactory.getMain()) {
@@ -5262,7 +5799,14 @@ class Module {
         else if ((_d = (_c = this.srcDom) === null || _c === void 0 ? void 0 : _c.node) === null || _d === void 0 ? void 0 : _d.parentElement) {
             Util.insertAfter(el, this.srcDom.node);
         }
-        this.doModuleEvent('onMount');
+        (_f = (_e = Renderer).syncTeleports) === null || _f === void 0 ? void 0 : _f.call(_e, this.domManager.renderedTree);
+        if (!isKeepAliveReactivation) {
+            this.doModuleEvent('onMount');
+        }
+        if (this.keepAliveManaged) {
+            this.keepAliveDeactivated = false;
+            this.doModuleEvent('onActivated');
+        }
         this.state = EModuleState.MOUNTED;
     }
     unmount(passive) {
@@ -5270,8 +5814,11 @@ class Module {
         if (this.state !== EModuleState.MOUNTED || ModuleFactory.getMain() === this) {
             return;
         }
+        const isKeepAliveDeactivation = !!passive && this.keepAliveManaged;
         Renderer.remove(this);
-        this.doModuleEvent('onBeforeUnMount');
+        if (!isKeepAliveDeactivation) {
+            this.doModuleEvent('onBeforeUnMount');
+        }
         this.eventFactory.clear();
         this.domManager.renderedTree = null;
         if (passive) {
@@ -5291,11 +5838,20 @@ class Module {
                 this.srcDom.node.parentElement.removeChild(this.srcDom.node);
             }
         }
-        this.doModuleEvent('onUnMount');
+        if (isKeepAliveDeactivation) {
+            this.keepAliveDeactivated = true;
+            this.doModuleEvent('onDeactivated');
+        }
+        else {
+            this.keepAliveDeactivated = false;
+            this.doModuleEvent('onUnMount');
+        }
     }
     destroy() {
         var _a, _b, _c;
         Renderer.remove(this);
+        this.keepAliveManaged = false;
+        this.keepAliveDeactivated = false;
         this.unmount(true);
         for (const m of this.children) {
             m.destroy();
@@ -5364,17 +5920,24 @@ class Module {
         }
     }
     doModuleEvent(eventName) {
+        return this.emitHook(eventName, this.model);
+    }
+    emitHook(eventName, ...args) {
         const foo = this[eventName];
         let result;
         if (foo && typeof foo === 'function') {
-            result = foo.apply(this, [this.model]);
+            result = foo.apply(this, args);
         }
-        this.runCompositionHooks(eventName);
+        this.runCompositionHooks(eventName, ...args);
         return result;
     }
     setProps(props, dom) {
         if (!props) {
             return;
+        }
+        const keepAliveValue = dom.keepAlive;
+        if (isKeepAliveManagedValue(keepAliveValue)) {
+            this.setKeepAliveManaged(true);
         }
         const dataObj = props['$data'];
         delete props['$data'];
@@ -5580,9 +6143,18 @@ class Module {
         }
         return defaultValue;
     }
+    setExposed(exposed) {
+        this.exposed = exposed;
+    }
     addCompositionCleanup(cleanup) {
         if (typeof cleanup === 'function') {
             this.compositionCleanups.push(cleanup);
+        }
+    }
+    setKeepAliveManaged(managed) {
+        this.keepAliveManaged = managed;
+        if (!managed) {
+            this.keepAliveDeactivated = false;
         }
     }
     initSetupState() {
@@ -5615,13 +6187,13 @@ class Module {
             this[key] = globalProperties[key];
         }
     }
-    runCompositionHooks(eventName) {
+    runCompositionHooks(eventName, ...args) {
         const hooks = this.compositionHooks.get(eventName);
         if (!hooks || hooks.length === 0) {
             return;
         }
         for (const hook of hooks) {
-            hook.apply(this, [this.model]);
+            hook.apply(this, args);
         }
     }
     clearCompositionCleanups() {
@@ -5675,6 +6247,21 @@ class Module {
         return Array.from(this.dirtyPaths);
     }
 }
+function registerModuleDefinition(item) {
+    if (!item) {
+        return;
+    }
+    if (typeof item === "function") {
+        ModuleFactory.addClass(item);
+        return;
+    }
+    if (typeof item === "object") {
+        const namedModule = item;
+        if (typeof namedModule.module === "function") {
+            ModuleFactory.addClass(namedModule.module, namedModule.name);
+        }
+    }
+}
 function syncReactiveState(target, nextValue) {
     const rawTarget = toRaw(target);
     for (const key of Reflect.ownKeys(rawTarget)) {
@@ -5688,6 +6275,15 @@ function syncReactiveState(target, nextValue) {
 }
 function normalizeHotId$1(hotId) {
     return typeof hotId === 'string' ? hotId.replace(/\\/g, '/') : '';
+}
+function isKeepAliveManagedValue(value) {
+    if (value === undefined || value === false) {
+        return false;
+    }
+    if (value === true) {
+        return true;
+    }
+    return !value.disabled;
 }
 
 function normalizeRoutePath(path) {
@@ -6517,6 +7113,1099 @@ function createApp(rootComponent, selector, seed) {
     return new App(rootComponent, selector, seed);
 }
 
+function defineAsyncComponent(loaderOrOptions) {
+    const options = normalizeAsyncComponentOptions(loaderOrOptions);
+    const meta = {
+        attempts: 0,
+        delay: options.delay,
+        errorComponent: options.errorComponent,
+        instances: new Set(),
+        listeners: new Set(),
+        loader: options.loader,
+        loading: false,
+        onError: options.onError,
+        loadingComponent: options.loadingComponent,
+        timeout: options.timeout
+    };
+    if (meta.loadingComponent) {
+        ModuleFactory.addClass(meta.loadingComponent);
+    }
+    if (meta.errorComponent) {
+        ModuleFactory.addClass(meta.errorComponent);
+    }
+    class AsyncComponentWrapper extends Module {
+        template() {
+            return resolveAsyncTemplate(meta, this);
+        }
+        onInit() {
+            const self = this;
+            meta.instances.add(self);
+            self.__asyncShowLoading = !meta.resolved && !meta.error && meta.delay === 0;
+            scheduleAsyncVisibility(meta, self, options.onError);
+            void ensureAsyncResolved(meta, options.onError).catch(() => undefined);
+        }
+        onBeforeUnMount() {
+            cleanupAsyncInstance(this, meta);
+        }
+        onUnMount() {
+            cleanupAsyncInstance(this, meta);
+        }
+    }
+    const ctor = AsyncComponentWrapper;
+    ctor.__asyncComponentMeta__ = meta;
+    return ctor;
+}
+function resolveAsyncComponentClass(component) {
+    const meta = getAsyncComponentMeta(component);
+    return meta === null || meta === void 0 ? void 0 : meta.resolved;
+}
+function getAsyncComponentStatus(component) {
+    const meta = getAsyncComponentMeta(component);
+    return meta ? snapshotAsyncStatus(meta) : undefined;
+}
+function subscribeAsyncComponent(component, listener) {
+    const meta = getAsyncComponentMeta(component);
+    if (!meta || typeof listener !== "function") {
+        return () => { };
+    }
+    meta.listeners.add(listener);
+    return () => {
+        meta.listeners.delete(listener);
+    };
+}
+function retryAsyncComponent(component) {
+    const meta = getAsyncComponentMeta(component);
+    if (!meta) {
+        return Promise.resolve(undefined);
+    }
+    meta.error = undefined;
+    meta.loading = false;
+    meta.pending = undefined;
+    meta.resolved = undefined;
+    notifyAsyncInstances(meta);
+    return ensureAsyncResolved(meta, meta.onError).catch(() => undefined);
+}
+function ensureAsyncResolved(meta, onError) {
+    if (meta.resolved) {
+        return Promise.resolve(meta.resolved);
+    }
+    if (meta.pending) {
+        return meta.pending;
+    }
+    meta.loading = true;
+    meta.attempts += 1;
+    meta.error = undefined;
+    meta.resolved = undefined;
+    meta.pending = Promise.resolve()
+        .then(() => meta.loader())
+        .then(result => {
+        const resolved = normalizeAsyncResult(result);
+        if (!resolved) {
+            throw new Error("Async component loader resolved without a component.");
+        }
+        meta.loading = false;
+        meta.error = undefined;
+        meta.resolved = resolved;
+        meta.pending = undefined;
+        ModuleFactory.addClass(resolved);
+        notifyAsyncInstances(meta);
+        return resolved;
+    })
+        .catch(error => {
+        meta.loading = false;
+        meta.pending = undefined;
+        meta.error = error;
+        try {
+            onError === null || onError === void 0 ? void 0 : onError(error);
+        }
+        catch (_a) {
+            // ignore user callback errors and keep async failure visible
+        }
+        notifyAsyncInstances(meta);
+        throw error;
+    });
+    notifyAsyncInstances(meta);
+    return meta.pending;
+}
+function scheduleAsyncVisibility(meta, instance, onError) {
+    clearAsyncTimers(instance);
+    if (!meta.resolved && !meta.error && meta.delay > 0) {
+        instance.__asyncDelayTimer = setTimeout(() => {
+            instance.__asyncShowLoading = true;
+            requestAsyncRender(instance);
+        }, meta.delay);
+    }
+    if (!meta.resolved && !meta.error && typeof meta.timeout === "number" && meta.timeout > 0) {
+        instance.__asyncTimeoutTimer = setTimeout(() => {
+            if (meta.resolved || meta.error) {
+                return;
+            }
+            const timeoutError = new Error(`Async component timed out after ${meta.timeout}ms.`);
+            meta.loading = false;
+            meta.pending = undefined;
+            meta.error = timeoutError;
+            try {
+                onError === null || onError === void 0 ? void 0 : onError(timeoutError);
+            }
+            catch (_a) {
+                // ignore user callback errors and keep async failure visible
+            }
+            notifyAsyncInstances(meta);
+        }, meta.timeout);
+    }
+}
+function resolveAsyncTemplate(meta, instance) {
+    if (meta.resolved) {
+        return `<${meta.resolved.name}></${meta.resolved.name}>`;
+    }
+    if (meta.error) {
+        if (meta.errorComponent) {
+            return `<${meta.errorComponent.name}></${meta.errorComponent.name}>`;
+        }
+        return `<div class="nd-async-error" role="alert">${escapeHtml(meta.error instanceof Error ? meta.error.message : "Async component failed to load.")}</div>`;
+    }
+    if (instance.__asyncShowLoading) {
+        if (meta.loadingComponent) {
+            return `<${meta.loadingComponent.name}></${meta.loadingComponent.name}>`;
+        }
+        return `<div class="nd-async-loading" role="status">Loading...</div>`;
+    }
+    return `<div class="nd-async-placeholder" style="display:none" aria-hidden="true"></div>`;
+}
+function notifyAsyncInstances(meta) {
+    for (const instance of meta.instances) {
+        instance.__asyncShowLoading = !meta.resolved && !meta.error && meta.delay === 0;
+        clearAsyncTimers(instance);
+        if (!meta.resolved && !meta.error) {
+            scheduleAsyncVisibility(meta, instance, meta.onError);
+        }
+        requestAsyncRender(instance);
+    }
+    const status = snapshotAsyncStatus(meta);
+    for (const listener of meta.listeners) {
+        listener(status);
+    }
+}
+function requestAsyncRender(instance) {
+    var _a;
+    (_a = instance.markDirty) === null || _a === void 0 ? void 0 : _a.call(instance);
+    Renderer.add(instance);
+}
+function cleanupAsyncInstance(instance, meta) {
+    clearAsyncTimers(instance);
+    meta.instances.delete(instance);
+}
+function clearAsyncTimers(instance) {
+    if (instance.__asyncDelayTimer) {
+        clearTimeout(instance.__asyncDelayTimer);
+        delete instance.__asyncDelayTimer;
+    }
+    if (instance.__asyncTimeoutTimer) {
+        clearTimeout(instance.__asyncTimeoutTimer);
+        delete instance.__asyncTimeoutTimer;
+    }
+}
+function normalizeAsyncComponentOptions(loaderOrOptions) {
+    var _a;
+    if (typeof loaderOrOptions === "function") {
+        return {
+            delay: 0,
+            loader: loaderOrOptions
+        };
+    }
+    return Object.assign({ delay: (_a = loaderOrOptions.delay) !== null && _a !== void 0 ? _a : 0 }, loaderOrOptions);
+}
+function normalizeAsyncResult(result) {
+    const value = (result && typeof result === "object" && "default" in result
+        ? result.default
+        : result);
+    if (!value) {
+        return undefined;
+    }
+    if (typeof value === "string") {
+        return ModuleFactory.getClass(value);
+    }
+    return value;
+}
+function getAsyncComponentMeta(component) {
+    if (!component || typeof component !== "function") {
+        return undefined;
+    }
+    return component.__asyncComponentMeta__;
+}
+function snapshotAsyncStatus(meta) {
+    return {
+        attempts: meta.attempts,
+        delay: meta.delay,
+        error: meta.error,
+        loading: meta.loading,
+        resolved: !!meta.resolved,
+        timeout: meta.timeout
+    };
+}
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+class Teleport extends Module {
+    template() {
+        return `
+            <div class="nd-teleport-host" style="display:contents">
+                <slot />
+            </div>
+        `;
+    }
+    onUpdate() {
+        this.syncTeleportTarget();
+    }
+    mount() {
+        if (this.state === EModuleState.MOUNTED || !this.domManager.renderedTree) {
+            return;
+        }
+        this.doModuleEvent("onBeforeMount");
+        const root = new DocumentFragment();
+        const el = Renderer.renderToHtml(this, this.domManager.renderedTree, root);
+        this.moveTeleportNode(el);
+        this.doModuleEvent("onMount");
+        this.state = EModuleState.MOUNTED;
+    }
+    unmount(passive) {
+        var _a;
+        if (this.state !== EModuleState.MOUNTED || ModuleFactory.getMain() === this) {
+            return;
+        }
+        Renderer.remove(this);
+        this.doModuleEvent("onBeforeUnMount");
+        this.eventFactory.clear();
+        const renderedTree = this.domManager.renderedTree;
+        this.domManager.renderedTree = null;
+        if (passive) {
+            this.state = EModuleState.INIT;
+        }
+        else {
+            this.state = EModuleState.UNMOUNTED;
+        }
+        for (const child of this.children) {
+            child.unmount(true);
+        }
+        if ((_a = renderedTree === null || renderedTree === void 0 ? void 0 : renderedTree.node) === null || _a === void 0 ? void 0 : _a.parentElement) {
+            renderedTree.node.parentElement.removeChild(renderedTree.node);
+        }
+        this.lastTeleportTarget = undefined;
+        this.doModuleEvent("onUnMount");
+    }
+    syncTeleportTarget() {
+        var _a;
+        const node = (_a = this.domManager.renderedTree) === null || _a === void 0 ? void 0 : _a.node;
+        if (!node) {
+            return;
+        }
+        this.moveTeleportNode(node);
+    }
+    moveTeleportNode(node) {
+        var _a;
+        const target = this.resolveTeleportTarget();
+        if (target) {
+            if (node.parentElement !== target) {
+                target.appendChild(node);
+            }
+            this.lastTeleportTarget = target;
+            return;
+        }
+        const sourceAnchor = (_a = this.srcDom) === null || _a === void 0 ? void 0 : _a.node;
+        const sourceParent = sourceAnchor === null || sourceAnchor === void 0 ? void 0 : sourceAnchor.parentElement;
+        if (sourceAnchor && sourceParent) {
+            Util.insertAfter(node, sourceAnchor);
+            this.lastTeleportTarget = sourceParent;
+        }
+    }
+    resolveTeleportTarget() {
+        var _a, _b, _c, _d;
+        if (isTruthyTeleportFlag((_a = this.props) === null || _a === void 0 ? void 0 : _a.disabled)) {
+            return null;
+        }
+        const target = (_c = (_b = this.props) === null || _b === void 0 ? void 0 : _b.to) !== null && _c !== void 0 ? _c : (_d = this.props) === null || _d === void 0 ? void 0 : _d.target;
+        if (typeof target === "string" && target.trim()) {
+            return document.querySelector(target);
+        }
+        if (target instanceof Element) {
+            return target;
+        }
+        return null;
+    }
+}
+ModuleFactory.addClass(Teleport, "Teleport");
+class Suspense extends Module {
+    constructor() {
+        super(...arguments);
+        this.suspenseBranchCleanupTimers = new Map();
+        this.suspensePaused = false;
+        this.suspensePending = false;
+        this.suspensePendingCount = 0;
+        this.suspensePhase = "idle";
+        this.suspenseRetryKey = "";
+        this.suspenseShowError = false;
+        this.suspenseShowFallback = false;
+        this.suspenseSubscriptions = new Map();
+        this.suspenseTimeout = 0;
+        this.suspenseTrackedComponents = new Set();
+    }
+    data() {
+        return {
+            defaultStyle: "display:contents",
+            branchTransitionDuration: undefined,
+            branchTransitionEnabled: false,
+            branchTransitionEnterActiveClass: undefined,
+            branchTransitionEnterDuration: undefined,
+            branchTransitionEnterFromClass: undefined,
+            branchTransitionEnterToClass: undefined,
+            branchTransitionLeaveActiveClass: undefined,
+            branchTransitionLeaveDuration: undefined,
+            branchTransitionLeaveFromClass: undefined,
+            branchTransitionLeaveToClass: undefined,
+            branchTransitionName: "nd-suspense",
+            errorMessage: "",
+            errorStyle: "display:none",
+            errorText: "Async content failed to load.",
+            fallbackStyle: "display:none",
+            fallbackText: "Loading...",
+            pendingCount: 0,
+            phase: "idle",
+            retryKey: "",
+            showError: false,
+            showErrorPlain: false,
+            showErrorText: false,
+            showErrorTransition: false,
+            showFallback: false,
+            showFallbackPlain: false,
+            showFallbackText: false,
+            showFallbackTransition: false,
+            suspenseOwner: ""
+        };
+    }
+    template() {
+        return `
+            <div class="nd-suspense-host" style="display:contents">
+                <div
+                    class="nd-suspense-default"
+                    data-nd-suspense-branch="default"
+                    data-nd-suspense-owner={{suspenseOwner}}
+                    style={{defaultStyle}}
+                >
+                    <slot />
+                </div>
+                <if cond={{showErrorTransition}}>
+                    <Transition
+                        name={{branchTransitionName}}
+                        duration={{branchTransitionDuration}}
+                        enter-duration={{branchTransitionEnterDuration}}
+                        leave-duration={{branchTransitionLeaveDuration}}
+                        enter-from-class={{branchTransitionEnterFromClass}}
+                        enter-active-class={{branchTransitionEnterActiveClass}}
+                        enter-to-class={{branchTransitionEnterToClass}}
+                        leave-from-class={{branchTransitionLeaveFromClass}}
+                        leave-active-class={{branchTransitionLeaveActiveClass}}
+                        leave-to-class={{branchTransitionLeaveToClass}}
+                    >
+                        <div
+                            x-if={{showError}}
+                            class="nd-suspense-error"
+                            data-nd-suspense-branch="error"
+                            data-nd-suspense-owner={{suspenseOwner}}
+                            style={{errorStyle}}
+                        >
+                            <slot name="error" innerrender />
+                            <div x-if={{showErrorText}} class="nd-suspense-error-text">{{errorText}}</div>
+                        </div>
+                    </Transition>
+                </if>
+                <endif />
+                <if cond={{showErrorPlain}}>
+                    <div
+                        x-if={{showError}}
+                        class="nd-suspense-error"
+                        data-nd-suspense-branch="error"
+                        data-nd-suspense-owner={{suspenseOwner}}
+                        style={{errorStyle}}
+                    >
+                        <slot name="error" innerrender />
+                        <div x-if={{showErrorText}} class="nd-suspense-error-text">{{errorText}}</div>
+                    </div>
+                </if>
+                <endif />
+                <if cond={{showFallbackTransition}}>
+                    <Transition
+                        name={{branchTransitionName}}
+                        duration={{branchTransitionDuration}}
+                        enter-duration={{branchTransitionEnterDuration}}
+                        leave-duration={{branchTransitionLeaveDuration}}
+                        enter-from-class={{branchTransitionEnterFromClass}}
+                        enter-active-class={{branchTransitionEnterActiveClass}}
+                        enter-to-class={{branchTransitionEnterToClass}}
+                        leave-from-class={{branchTransitionLeaveFromClass}}
+                        leave-active-class={{branchTransitionLeaveActiveClass}}
+                        leave-to-class={{branchTransitionLeaveToClass}}
+                    >
+                        <div
+                            x-if={{showFallback}}
+                            class="nd-suspense-fallback"
+                            data-nd-suspense-branch="fallback"
+                            data-nd-suspense-owner={{suspenseOwner}}
+                            style={{fallbackStyle}}
+                        >
+                            <slot name="fallback" innerrender />
+                            <div x-if={{showFallbackText}} class="nd-suspense-fallback-text">{{fallbackText}}</div>
+                        </div>
+                    </Transition>
+                </if>
+                <endif />
+                <if cond={{showFallbackPlain}}>
+                    <div
+                        x-if={{showFallback}}
+                        class="nd-suspense-fallback"
+                        data-nd-suspense-branch="fallback"
+                        data-nd-suspense-owner={{suspenseOwner}}
+                        style={{fallbackStyle}}
+                    >
+                        <slot name="fallback" innerrender />
+                        <div x-if={{showFallbackText}} class="nd-suspense-fallback-text">{{fallbackText}}</div>
+                    </div>
+                </if>
+                <endif />
+            </div>
+        `;
+    }
+    onInit() {
+        this.model["suspenseOwner"] = String(this.id);
+        this.syncSuspenseViewState();
+    }
+    onBeforeRender() {
+        this.syncSuspenseViewState();
+    }
+    onRender() {
+        this.refreshSuspenseState();
+    }
+    onActivated() {
+        this.suspensePaused = false;
+        this.refreshSuspenseState();
+    }
+    onDeactivated() {
+        this.suspensePaused = true;
+        this.clearSuspenseFallbackTimer();
+        this.clearSuspenseBranchCleanup("error");
+        this.clearSuspenseBranchCleanup("fallback");
+    }
+    onBeforeUnMount() {
+        this.clearSuspenseResources();
+    }
+    onUnMount() {
+        this.clearSuspenseResources();
+    }
+    hasRetryableSuspenseError(cascade = true) {
+        const trackedAsyncComponents = collectTrackedAsyncComponents(this);
+        if (trackedAsyncComponents.some(item => item.status.error !== undefined)) {
+            return true;
+        }
+        if (!cascade) {
+            return false;
+        }
+        return collectNestedSuspenseBoundaries(this).some(child => child.hasRetryableSuspenseError(true));
+    }
+    retryBoundary(retryKey, cascade = true) {
+        const trackedAsyncComponents = collectTrackedAsyncComponents(this);
+        const retriedComponents = trackedAsyncComponents.filter(item => item.status.error !== undefined);
+        let nestedRetryCount = 0;
+        if (cascade) {
+            for (const child of collectNestedSuspenseBoundaries(this)) {
+                if (child.retryBoundary(retryKey, true)) {
+                    nestedRetryCount += 1;
+                }
+            }
+        }
+        if (retriedComponents.length === 0 && nestedRetryCount === 0) {
+            return false;
+        }
+        this.suspenseRetryKey = retryKey || this.suspenseRetryKey;
+        this.suspensePending = false;
+        this.suspenseShowError = false;
+        this.suspenseShowFallback = false;
+        this.suspenseError = undefined;
+        this.clearSuspenseFallbackTimer();
+        this.syncSuspenseViewState();
+        this.queueSuspenseRender();
+        this.emitSuspenseHook("onSuspenseRetry", {
+            boundaryId: this.id,
+            nestedRetryCount,
+            pendingCount: retriedComponents.length,
+            phase: "pending",
+            retryKey: this.suspenseRetryKey || undefined,
+            sourceBoundaryId: this.id,
+            timeout: this.suspenseTimeout
+        });
+        for (const item of retriedComponents) {
+            void retryAsyncComponent(item.component);
+        }
+        return true;
+    }
+    refreshSuspenseState() {
+        var _a, _b, _c, _d, _e;
+        let trackedAsyncComponents = collectTrackedAsyncComponents(this);
+        if (trackedAsyncComponents.length > 0) {
+            this.suspenseTrackedComponents = new Set(trackedAsyncComponents.map(item => item.component));
+        }
+        else if (this.suspenseTrackedComponents.size > 0) {
+            trackedAsyncComponents = Array.from(this.suspenseTrackedComponents)
+                .map(component => {
+                const status = getAsyncComponentStatus(component);
+                return status
+                    ? {
+                        component,
+                        status
+                    }
+                    : null;
+            })
+                .filter(Boolean);
+        }
+        this.syncSuspenseSubscriptions(trackedAsyncComponents.map(item => item.component));
+        let changed = false;
+        const timeout = resolveSuspenseTimeout((_a = this.props) === null || _a === void 0 ? void 0 : _a.timeout);
+        const retryKey = resolveSuspenseRetryKey((_c = (_b = this.props) === null || _b === void 0 ? void 0 : _b["retry-key"]) !== null && _c !== void 0 ? _c : (_d = this.props) === null || _d === void 0 ? void 0 : _d.retryKey);
+        if (shouldRetrySuspense(this, trackedAsyncComponents, this.suspenseRetryKey, retryKey)) {
+            this.retryBoundary(retryKey, true);
+            return;
+        }
+        this.suspenseRetryKey = retryKey;
+        const pendingCount = trackedAsyncComponents.filter(item => item.status.loading && !item.status.resolved && !item.status.error).length;
+        const pending = pendingCount > 0;
+        this.suspensePendingCount = pendingCount;
+        const errorStatus = (_e = trackedAsyncComponents.find(item => !!item.status.error)) === null || _e === void 0 ? void 0 : _e.status;
+        const hadTrackedAsync = trackedAsyncComponents.length > 0;
+        const wasAsyncActive = this.suspensePhase === "pending" || this.suspensePhase === "fallback" || this.suspensePhase === "error";
+        if ((errorStatus === null || errorStatus === void 0 ? void 0 : errorStatus.error) !== undefined) {
+            changed = changed
+                || this.suspensePending
+                || this.suspenseShowFallback
+                || !this.suspenseShowError
+                || !Object.is(this.suspenseError, errorStatus.error);
+            this.suspensePending = false;
+            this.suspenseShowFallback = false;
+            this.suspenseShowError = true;
+            this.suspenseTimeout = timeout;
+            this.clearSuspenseFallbackTimer();
+            this.setSuspensePhase("error", {
+                boundaryId: this.id,
+                error: errorStatus.error,
+                pendingCount,
+                phase: "error",
+                sourceBoundaryId: this.id,
+                timeout
+            });
+            this.suspenseError = errorStatus.error;
+            const viewChanged = this.syncSuspenseViewState();
+            if (changed || viewChanged) {
+                this.queueSuspenseRender();
+            }
+            return;
+        }
+        if (!pending) {
+            changed = this.suspensePending || this.suspenseShowFallback || this.suspenseShowError || this.suspenseError !== undefined;
+            this.suspensePending = false;
+            this.suspenseShowFallback = false;
+            this.suspenseShowError = false;
+            this.suspenseError = undefined;
+            this.suspensePendingCount = 0;
+            this.suspenseTimeout = 0;
+            this.clearSuspenseFallbackTimer();
+            if (hadTrackedAsync && wasAsyncActive) {
+                this.setSuspensePhase("resolved", {
+                    boundaryId: this.id,
+                    pendingCount: 0,
+                    phase: "resolved",
+                    sourceBoundaryId: this.id,
+                    timeout: 0
+                });
+            }
+            else if (!hadTrackedAsync) {
+                this.suspensePhase = "idle";
+            }
+        }
+        else {
+            if (this.suspensePhase !== "pending" && this.suspensePhase !== "fallback") {
+                this.setSuspensePhase("pending", {
+                    boundaryId: this.id,
+                    pendingCount,
+                    phase: "pending",
+                    retryKey: this.suspenseRetryKey || retryKey || undefined,
+                    sourceBoundaryId: this.id,
+                    timeout
+                });
+            }
+            changed = !this.suspensePending || this.suspenseShowError || this.suspenseError !== undefined;
+            this.suspensePending = true;
+            this.suspenseShowError = false;
+            this.suspenseError = undefined;
+            if (timeout <= 0) {
+                changed = changed || !this.suspenseShowFallback;
+                this.suspenseShowFallback = true;
+                this.suspenseTimeout = timeout;
+                this.clearSuspenseFallbackTimer();
+                this.setSuspensePhase("fallback", {
+                    boundaryId: this.id,
+                    pendingCount,
+                    phase: "fallback",
+                    retryKey: this.suspenseRetryKey || retryKey || undefined,
+                    sourceBoundaryId: this.id,
+                    timeout
+                });
+            }
+            else if (this.suspenseShowFallback) {
+                this.suspenseTimeout = timeout;
+                this.clearSuspenseFallbackTimer();
+                this.setSuspensePhase("fallback", {
+                    boundaryId: this.id,
+                    pendingCount,
+                    retryKey: this.suspenseRetryKey || retryKey || undefined,
+                    timeout
+                });
+            }
+            else if (!this.suspenseFallbackTimer || this.suspenseTimeout !== timeout) {
+                this.suspenseTimeout = timeout;
+                this.clearSuspenseFallbackTimer();
+                this.suspenseFallbackTimer = setTimeout(() => {
+                    this.suspenseFallbackTimer = undefined;
+                    if (!this.suspensePending || this.suspenseShowFallback || this.suspenseShowError) {
+                        return;
+                    }
+                    this.suspenseShowFallback = true;
+                    this.setSuspensePhase("fallback", {
+                        boundaryId: this.id,
+                        pendingCount: collectTrackedAsyncComponents(this).filter(item => item.status.loading && !item.status.resolved && !item.status.error).length,
+                        retryKey: this.suspenseRetryKey || retryKey || undefined,
+                        timeout: this.suspenseTimeout
+                    });
+                    this.syncSuspenseViewState();
+                    this.queueSuspenseRender();
+                }, timeout);
+            }
+        }
+        const viewChanged = this.syncSuspenseViewState();
+        if (changed || viewChanged) {
+            this.queueSuspenseRender();
+        }
+    }
+    syncSuspenseViewState() {
+        var _a, _b;
+        const hasFallbackSlot = this.slots.has("fallback");
+        const hasErrorSlot = this.slots.has("error");
+        const branchTransition = resolveSuspenseBranchTransition(this.props);
+        const errorMessage = normalizeSuspenseErrorMessage(this.suspenseError);
+        const errorText = normalizeSuspenseErrorText((_a = this.props) === null || _a === void 0 ? void 0 : _a.error, this.suspenseError);
+        const fallbackText = normalizeSuspenseFallbackText((_b = this.props) === null || _b === void 0 ? void 0 : _b.fallback);
+        const nextDefaultStyle = this.suspenseShowFallback || this.suspenseShowError ? "display:none" : "display:contents";
+        const nextErrorStyle = this.suspenseShowError ? "display:contents" : "display:none";
+        const nextFallbackStyle = this.suspenseShowFallback ? "display:contents" : "display:none";
+        const nextShowErrorText = this.suspenseShowError && !hasErrorSlot;
+        const nextShowFallbackText = this.suspenseShowFallback && !hasFallbackSlot;
+        const showErrorTransition = this.suspenseShowError && !!branchTransition;
+        const showFallbackTransition = this.suspenseShowFallback && !!branchTransition;
+        this.syncSuspenseBranchCleanup("error", this.suspenseShowError, branchTransition);
+        this.syncSuspenseBranchCleanup("fallback", this.suspenseShowFallback, branchTransition);
+        let changed = false;
+        changed = setSuspenseModelValue(this, "branchTransitionDuration", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.duration) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionEnabled", !!branchTransition) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionEnterActiveClass", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.enterActiveClass) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionEnterDuration", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.enterDuration) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionEnterFromClass", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.enterFromClass) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionEnterToClass", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.enterToClass) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionLeaveActiveClass", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.leaveActiveClass) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionLeaveDuration", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.leaveDuration) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionLeaveFromClass", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.leaveFromClass) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionLeaveToClass", branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.leaveToClass) || changed;
+        changed = setSuspenseModelValue(this, "branchTransitionName", (branchTransition === null || branchTransition === void 0 ? void 0 : branchTransition.name) || "nd-suspense") || changed;
+        changed = setSuspenseModelValue(this, "defaultStyle", nextDefaultStyle) || changed;
+        changed = setSuspenseModelValue(this, "errorMessage", errorMessage) || changed;
+        changed = setSuspenseModelValue(this, "errorStyle", nextErrorStyle) || changed;
+        changed = setSuspenseModelValue(this, "errorText", errorText) || changed;
+        changed = setSuspenseModelValue(this, "fallbackStyle", nextFallbackStyle) || changed;
+        changed = setSuspenseModelValue(this, "fallbackText", fallbackText) || changed;
+        changed = setSuspenseModelValue(this, "pendingCount", this.suspensePendingCount) || changed;
+        changed = setSuspenseModelValue(this, "phase", this.suspensePhase) || changed;
+        changed = setSuspenseModelValue(this, "retryKey", this.suspenseRetryKey) || changed;
+        changed = setSuspenseModelValue(this, "showError", this.suspenseShowError) || changed;
+        changed = setSuspenseModelValue(this, "showErrorPlain", this.suspenseShowError && !branchTransition) || changed;
+        changed = setSuspenseModelValue(this, "showErrorText", nextShowErrorText) || changed;
+        changed = setSuspenseModelValue(this, "showErrorTransition", showErrorTransition) || changed;
+        changed = setSuspenseModelValue(this, "showFallback", this.suspenseShowFallback) || changed;
+        changed = setSuspenseModelValue(this, "showFallbackPlain", this.suspenseShowFallback && !branchTransition) || changed;
+        changed = setSuspenseModelValue(this, "showFallbackText", nextShowFallbackText) || changed;
+        changed = setSuspenseModelValue(this, "showFallbackTransition", showFallbackTransition) || changed;
+        changed = setSuspenseModelValue(this, "suspenseOwner", String(this.id)) || changed;
+        return changed;
+    }
+    syncSuspenseSubscriptions(components) {
+        const componentSet = new Set(components.filter(Boolean));
+        for (const [component, unsubscribe] of this.suspenseSubscriptions.entries()) {
+            if (componentSet.has(component)) {
+                continue;
+            }
+            unsubscribe();
+            this.suspenseSubscriptions.delete(component);
+        }
+        for (const component of componentSet) {
+            if (this.suspenseSubscriptions.has(component)) {
+                continue;
+            }
+            const unsubscribe = subscribeAsyncComponent(component, () => {
+                this.refreshSuspenseState();
+            });
+            this.suspenseSubscriptions.set(component, unsubscribe);
+        }
+    }
+    clearSuspenseResources() {
+        this.clearSuspenseFallbackTimer();
+        this.clearSuspenseBranchCleanup("error");
+        this.clearSuspenseBranchCleanup("fallback");
+        for (const unsubscribe of this.suspenseSubscriptions.values()) {
+            unsubscribe();
+        }
+        this.suspenseSubscriptions.clear();
+        this.suspenseTrackedComponents.clear();
+    }
+    clearSuspenseFallbackTimer() {
+        if (this.suspenseFallbackTimer) {
+            clearTimeout(this.suspenseFallbackTimer);
+            this.suspenseFallbackTimer = undefined;
+        }
+    }
+    queueSuspenseRender() {
+        this.markDirty();
+        if (!this.suspensePaused) {
+            Renderer.add(this);
+        }
+    }
+    syncSuspenseBranchCleanup(branch, visible, transition) {
+        if (visible || !transition) {
+            this.clearSuspenseBranchCleanup(branch);
+            return;
+        }
+        if (this.suspenseBranchCleanupTimers.has(branch)) {
+            return;
+        }
+        const delay = resolveSuspenseBranchTransitionDelay(transition);
+        const timer = setTimeout(() => {
+            this.suspenseBranchCleanupTimers.delete(branch);
+            const stillVisible = branch === "error" ? this.suspenseShowError : this.suspenseShowFallback;
+            if (stillVisible) {
+                return;
+            }
+            this.cleanupSuspenseBranchDom(branch);
+        }, delay);
+        this.suspenseBranchCleanupTimers.set(branch, timer);
+    }
+    clearSuspenseBranchCleanup(branch) {
+        const timer = this.suspenseBranchCleanupTimers.get(branch);
+        if (timer) {
+            clearTimeout(timer);
+            this.suspenseBranchCleanupTimers.delete(branch);
+        }
+    }
+    cleanupSuspenseBranchDom(branch) {
+        const owner = String(this.id);
+        const selector = `.nd-suspense-${branch}[data-nd-suspense-owner="${owner}"]`;
+        for (const node of Array.from(document.querySelectorAll(selector))) {
+            if (node.parentElement) {
+                node.parentElement.removeChild(node);
+            }
+        }
+    }
+    setSuspensePhase(nextPhase, detail) {
+        const sameError = nextPhase !== "error" || Object.is(this.suspenseError, detail.error);
+        if (this.suspensePhase === nextPhase && sameError) {
+            return;
+        }
+        this.suspensePhase = nextPhase;
+        switch (nextPhase) {
+            case "pending":
+                this.emitSuspenseHook("onSuspensePending", detail);
+                break;
+            case "fallback":
+                this.emitSuspenseHook("onSuspenseFallback", detail);
+                break;
+            case "resolved":
+                this.emitSuspenseHook("onSuspenseResolve", detail);
+                break;
+            case "error":
+                this.emitSuspenseHook("onSuspenseError", detail);
+                break;
+        }
+    }
+    emitSuspenseHook(name, detail) {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        const ownDetail = Object.assign(Object.assign({}, detail), { boundaryId: (_a = detail.boundaryId) !== null && _a !== void 0 ? _a : this.id, nested: false, phase: (_b = detail.phase) !== null && _b !== void 0 ? _b : this.suspensePhase, sourceBoundaryId: (_d = (_c = detail.sourceBoundaryId) !== null && _c !== void 0 ? _c : detail.boundaryId) !== null && _d !== void 0 ? _d : this.id });
+        this.emitHook(name, ownDetail);
+        let parent = this.getParent();
+        while (parent && parent !== this) {
+            parent.emitHook(name, Object.assign(Object.assign({}, detail), { boundaryId: (_e = detail.boundaryId) !== null && _e !== void 0 ? _e : this.id, nested: true, phase: (_f = detail.phase) !== null && _f !== void 0 ? _f : this.suspensePhase, sourceBoundaryId: (_h = (_g = detail.sourceBoundaryId) !== null && _g !== void 0 ? _g : detail.boundaryId) !== null && _h !== void 0 ? _h : this.id }));
+            parent = (_j = parent.getParent) === null || _j === void 0 ? void 0 : _j.call(parent);
+        }
+    }
+}
+ModuleFactory.addClass(Suspense, "Suspense");
+function isTruthyTeleportFlag(value) {
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        return normalized === "" || normalized === "true" || normalized === "1";
+    }
+    return value === true;
+}
+function collectTrackedAsyncComponents(rootModule) {
+    var _a;
+    const tracked = new Map();
+    const walk = (dom, branch = "default") => {
+        var _a;
+        if (!dom) {
+            return;
+        }
+        const nextBranch = resolveSuspenseBranch(dom, branch);
+        if (dom.childModuleId) {
+            const childModule = ModuleFactory.get(dom.childModuleId);
+            if (!childModule || nextBranch !== "default") {
+                return;
+            }
+            if (childModule.constructor === Suspense) {
+                return;
+            }
+            const status = getAsyncComponentStatus(childModule.constructor);
+            if (status) {
+                tracked.set(childModule.constructor, status);
+                return;
+            }
+            walk((_a = childModule.domManager) === null || _a === void 0 ? void 0 : _a.renderedTree, nextBranch);
+            return;
+        }
+        for (const child of dom.children || []) {
+            walk(child, nextBranch);
+        }
+    };
+    walk((_a = rootModule.domManager) === null || _a === void 0 ? void 0 : _a.renderedTree);
+    return Array.from(tracked.entries()).map(([component, status]) => ({
+        component,
+        status
+    }));
+}
+function collectNestedSuspenseBoundaries(rootModule) {
+    var _a;
+    const boundaries = new Set();
+    const walk = (dom, branch = "default") => {
+        var _a;
+        if (!dom) {
+            return;
+        }
+        const nextBranch = resolveSuspenseBranch(dom, branch);
+        if (dom.childModuleId) {
+            const childModule = ModuleFactory.get(dom.childModuleId);
+            if (!childModule || nextBranch !== "default") {
+                return;
+            }
+            if (childModule.constructor === Suspense) {
+                boundaries.add(childModule);
+                return;
+            }
+            walk((_a = childModule.domManager) === null || _a === void 0 ? void 0 : _a.renderedTree, nextBranch);
+            return;
+        }
+        for (const child of dom.children || []) {
+            walk(child, nextBranch);
+        }
+    };
+    walk((_a = rootModule.domManager) === null || _a === void 0 ? void 0 : _a.renderedTree);
+    return Array.from(boundaries);
+}
+function resolveSuspenseBranch(dom, currentBranch) {
+    var _a;
+    const branch = (_a = dom.props) === null || _a === void 0 ? void 0 : _a["data-nd-suspense-branch"];
+    if (branch === "default" || branch === "error" || branch === "fallback") {
+        return branch;
+    }
+    return currentBranch;
+}
+function resolveSuspenseTimeout(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return Math.max(0, value);
+    }
+    if (typeof value === "string" && value.trim()) {
+        const parsed = Number(value.trim());
+        if (Number.isFinite(parsed)) {
+            return Math.max(0, parsed);
+        }
+    }
+    return 0;
+}
+function resolveSuspenseBranchTransition(props) {
+    const enabledFlag = readSuspenseBranchTransitionProp(props, "transition", "branch-transition", "branchTransition");
+    const name = readSuspenseBranchTransitionProp(props, "transition-name", "transitionName");
+    const duration = readSuspenseBranchTransitionProp(props, "transition-duration", "transitionDuration");
+    const enterDuration = readSuspenseBranchTransitionProp(props, "transition-enter-duration", "transitionEnterDuration");
+    const leaveDuration = readSuspenseBranchTransitionProp(props, "transition-leave-duration", "transitionLeaveDuration");
+    const enterFromClass = readSuspenseBranchTransitionProp(props, "transition-enter-from-class", "transitionEnterFromClass");
+    const enterActiveClass = readSuspenseBranchTransitionProp(props, "transition-enter-active-class", "transitionEnterActiveClass");
+    const enterToClass = readSuspenseBranchTransitionProp(props, "transition-enter-to-class", "transitionEnterToClass");
+    const leaveFromClass = readSuspenseBranchTransitionProp(props, "transition-leave-from-class", "transitionLeaveFromClass");
+    const leaveActiveClass = readSuspenseBranchTransitionProp(props, "transition-leave-active-class", "transitionLeaveActiveClass");
+    const leaveToClass = readSuspenseBranchTransitionProp(props, "transition-leave-to-class", "transitionLeaveToClass");
+    const enabled = resolveSuspenseBranchTransitionEnabled(enabledFlag)
+        || name !== undefined
+        || duration !== undefined
+        || enterDuration !== undefined
+        || leaveDuration !== undefined
+        || enterFromClass !== undefined
+        || enterActiveClass !== undefined
+        || enterToClass !== undefined
+        || leaveFromClass !== undefined
+        || leaveActiveClass !== undefined
+        || leaveToClass !== undefined;
+    if (!enabled) {
+        return null;
+    }
+    return {
+        duration: normalizeSuspenseTransitionDuration(duration),
+        enterActiveClass: normalizeSuspenseTransitionClass(enterActiveClass),
+        enterDuration: normalizeSuspenseTransitionDuration(enterDuration),
+        enterFromClass: normalizeSuspenseTransitionClass(enterFromClass),
+        enterToClass: normalizeSuspenseTransitionClass(enterToClass),
+        leaveActiveClass: normalizeSuspenseTransitionClass(leaveActiveClass),
+        leaveDuration: normalizeSuspenseTransitionDuration(leaveDuration),
+        leaveFromClass: normalizeSuspenseTransitionClass(leaveFromClass),
+        leaveToClass: normalizeSuspenseTransitionClass(leaveToClass),
+        name: normalizeSuspenseTransitionName(name)
+    };
+}
+function readSuspenseBranchTransitionProp(props, ...names) {
+    if (!props) {
+        return undefined;
+    }
+    for (const name of names) {
+        if (name in props) {
+            return props[name];
+        }
+    }
+    return undefined;
+}
+function resolveSuspenseBranchTransitionEnabled(value) {
+    if (value === undefined || value === null) {
+        return false;
+    }
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        return normalized === "" || normalized === "true" || normalized === "1";
+    }
+    return value === true;
+}
+function normalizeSuspenseTransitionName(value) {
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
+    }
+    return "nd-suspense";
+}
+function normalizeSuspenseTransitionClass(value) {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const normalized = value.trim();
+    return normalized || undefined;
+}
+function normalizeSuspenseTransitionDuration(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return Math.max(0, value);
+    }
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
+    }
+    return undefined;
+}
+function resolveSuspenseBranchTransitionDelay(transition) {
+    var _a;
+    if (!transition) {
+        return 0;
+    }
+    const duration = (_a = transition.leaveDuration) !== null && _a !== void 0 ? _a : transition.duration;
+    if (typeof duration === "number" && Number.isFinite(duration)) {
+        return Math.max(0, duration) + 20;
+    }
+    if (typeof duration === "string" && duration.trim()) {
+        const parsed = Number(duration.trim());
+        if (Number.isFinite(parsed)) {
+            return Math.max(0, parsed) + 20;
+        }
+    }
+    return 270;
+}
+function resolveSuspenseRetryKey(value) {
+    if (value === undefined || value === null) {
+        return "";
+    }
+    if (typeof value === "string") {
+        return value.trim();
+    }
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+        return String(value);
+    }
+    try {
+        return JSON.stringify(value) || "";
+    }
+    catch (_a) {
+        return String(value);
+    }
+}
+function shouldRetrySuspense(module, trackedAsyncComponents, previousRetryKey, nextRetryKey) {
+    if (!nextRetryKey || nextRetryKey === previousRetryKey) {
+        return false;
+    }
+    if (trackedAsyncComponents.some(item => item.status.error !== undefined)) {
+        return true;
+    }
+    return collectNestedSuspenseBoundaries(module).some(child => child.hasRetryableSuspenseError(true));
+}
+function normalizeSuspenseFallbackText(value) {
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
+    }
+    return "Loading...";
+}
+function normalizeSuspenseErrorText(value, error) {
+    if (typeof value === "string" && value.trim()) {
+        return value.trim();
+    }
+    if (error instanceof Error && error.message.trim()) {
+        return error.message.trim();
+    }
+    if (typeof error === "string" && error.trim()) {
+        return error.trim();
+    }
+    return "Async content failed to load.";
+}
+function normalizeSuspenseErrorMessage(error) {
+    if (error instanceof Error && error.message.trim()) {
+        return error.message.trim();
+    }
+    if (typeof error === "string" && error.trim()) {
+        return error.trim();
+    }
+    return "";
+}
+function setSuspenseModelValue(module, key, value) {
+    if (Object.is(module.model[key], value)) {
+        return false;
+    }
+    module.model[key] = value;
+    return true;
+}
+
 class Nodom {
     static createApp(clazz, selector) {
         const app = createApp(clazz, selector);
@@ -6798,11 +8487,38 @@ const useProps = useAttrs;
 function useSlots() {
     return useRuntimeModule().slots;
 }
+function defineSlots() {
+    return useSlots();
+}
 function defineProps() {
     return useAttrs();
 }
 function withDefaults(props, defaults) {
     return Object.assign(Object.assign({}, (defaults || {})), (props || {}));
+}
+function defineModel(nameOrOptions, maybeOptions) {
+    const module = useRuntimeModule();
+    const modelName = typeof nameOrOptions === "string" ? nameOrOptions : "modelValue";
+    const options = (typeof nameOrOptions === "string" ? maybeOptions : nameOrOptions) || {};
+    const eventName = resolveModelEventName(modelName, options);
+    const emit = defineEmits([eventName]);
+    const state = useState(resolveModelValue(module, modelName, options));
+    const syncState = () => {
+        const nextValue = resolveModelValue(module, modelName, options);
+        if (!Object.is(state.value, nextValue)) {
+            state.value = nextValue;
+        }
+    };
+    syncState();
+    registerHook("onBeforeRender", syncState);
+    return useComputed({
+        get: () => state.value,
+        set(value) {
+            const emittedValue = options.set ? options.set(value) : value;
+            state.value = options.get ? options.get(emittedValue) : emittedValue;
+            emit(eventName, emittedValue);
+        }
+    });
 }
 function provide(key, value) {
     useRuntimeModule().provide(key, value);
@@ -6811,6 +8527,21 @@ function inject(key, defaultValue) {
     return useRuntimeModule().inject(key, defaultValue);
 }
 const useInject = inject;
+function defineEmits(options) {
+    const module = useRuntimeModule();
+    return ((eventName, ...args) => {
+        return emitFromModule(module, eventName, args, options);
+    });
+}
+function defineExpose(exposed) {
+    var _a;
+    if (exposed && typeof exposed === "object") {
+        const module = useRuntimeModule();
+        (_a = module.setExposed) === null || _a === void 0 ? void 0 : _a.call(module, exposed);
+        return exposed;
+    }
+    return undefined;
+}
 function useRouter() {
     return Nodom["$Router"];
 }
@@ -6829,6 +8560,121 @@ function useRoute() {
         };
     }
     return module.model["$route"];
+}
+function emitFromModule(module, eventName, args, options) {
+    const normalizedName = normalizeEventName(eventName);
+    if (!normalizedName) {
+        return false;
+    }
+    if (!isDeclaredEvent(options, normalizedName)) {
+        return false;
+    }
+    const props = module.props || {};
+    const handlers = resolveEmitHandlers(props, normalizedName);
+    let handled = false;
+    for (const handler of handlers) {
+        if (typeof handler === "function") {
+            handler.apply(module, args);
+            handled = true;
+        }
+        else if (typeof handler === "string" && typeof module[handler] === "function") {
+            module.invokeMethod(handler, ...args);
+            handled = true;
+        }
+    }
+    return handled;
+}
+function resolveModelValue(module, modelName, options) {
+    const propValue = readModelPropValue(module.props || {}, modelName);
+    const resolvedValue = (propValue === undefined ? options.default : propValue);
+    return options.get ? options.get(resolvedValue) : resolvedValue;
+}
+function resolveModelEventName(modelName, options) {
+    return options.event || `update:${toKebabCase(modelName || "modelValue")}`;
+}
+function readModelPropValue(props, modelName) {
+    const candidates = buildPropCandidateKeys(modelName);
+    for (const key of candidates) {
+        if (Object.prototype.hasOwnProperty.call(props, key)) {
+            return props[key];
+        }
+    }
+    return undefined;
+}
+function buildPropCandidateKeys(modelName) {
+    const rawName = String(modelName || "modelValue");
+    const camelName = toCamelCase(rawName);
+    const kebabName = toKebabCase(rawName);
+    return Array.from(new Set([
+        rawName,
+        rawName.toLowerCase(),
+        camelName,
+        camelName.toLowerCase(),
+        kebabName,
+        kebabName.toLowerCase()
+    ].filter(Boolean)));
+}
+function isDeclaredEvent(options, eventName) {
+    if (!options) {
+        return true;
+    }
+    if (Array.isArray(options)) {
+        return options.some(item => normalizeEventName(item) === eventName);
+    }
+    return Object.prototype.hasOwnProperty.call(options, eventName);
+}
+function resolveEmitHandlers(props, eventName) {
+    const handlers = [];
+    const candidates = buildEmitCandidateKeys(eventName);
+    for (const key of candidates) {
+        const value = props[key];
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                if (!handlers.includes(item)) {
+                    handlers.push(item);
+                }
+            }
+        }
+        else if (value !== undefined && !handlers.includes(value)) {
+            handlers.push(value);
+        }
+    }
+    return handlers;
+}
+function buildEmitCandidateKeys(eventName) {
+    const camelName = toCamelCase(eventName);
+    const pascalName = camelName ? camelName[0].toUpperCase() + camelName.slice(1) : "";
+    const kebabName = toKebabCase(eventName);
+    const keys = [
+        eventName,
+        camelName,
+        kebabName,
+        `on${eventName}`,
+        `on${camelName}`,
+        `on${pascalName}`,
+        `on-${kebabName}`,
+        `on:${eventName}`
+    ];
+    return Array.from(new Set(keys.map(item => item.toLowerCase()).filter(Boolean)));
+}
+function normalizeEventName(eventName) {
+    return toKebabCase(String(eventName || ""));
+}
+function toCamelCase(value) {
+    const normalized = String(value || "")
+        .replace(/^on[-:]/i, "")
+        .replace(/[^a-zA-Z0-9]+([a-zA-Z0-9])/g, (_, char) => char.toUpperCase())
+        .replace(/^[A-Z]/, char => char.toLowerCase());
+    return normalized;
+}
+function toKebabCase(value) {
+    return String(value || "")
+        .replace(/^on[-:]/i, "")
+        .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+        .replace(/[_:\s]+/g, "-")
+        .replace(/--+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase();
 }
 function onInit(hook) {
     registerHook("onInit", hook);
@@ -6856,6 +8702,63 @@ function onBeforeUnmount(hook) {
 }
 function onUnmounted(hook) {
     registerHook("onUnMount", hook);
+}
+function onActivated(hook) {
+    registerHook("onActivated", hook);
+}
+function onDeactivated(hook) {
+    registerHook("onDeactivated", hook);
+}
+function onBeforeEnter(hook) {
+    registerHook("onBeforeEnter", hook);
+}
+function onEnter(hook) {
+    registerHook("onEnter", hook);
+}
+function onAfterEnter(hook) {
+    registerHook("onAfterEnter", hook);
+}
+function onEnterCancelled(hook) {
+    registerHook("onEnterCancelled", hook);
+}
+function onBeforeLeave(hook) {
+    registerHook("onBeforeLeave", hook);
+}
+function onLeave(hook) {
+    registerHook("onLeave", hook);
+}
+function onAfterLeave(hook) {
+    registerHook("onAfterLeave", hook);
+}
+function onLeaveCancelled(hook) {
+    registerHook("onLeaveCancelled", hook);
+}
+function onBeforeMove(hook) {
+    registerHook("onBeforeMove", hook);
+}
+function onMove(hook) {
+    registerHook("onMove", hook);
+}
+function onAfterMove(hook) {
+    registerHook("onAfterMove", hook);
+}
+function onMoveCancelled(hook) {
+    registerHook("onMoveCancelled", hook);
+}
+function onSuspensePending(hook) {
+    registerHook("onSuspensePending", hook);
+}
+function onSuspenseFallback(hook) {
+    registerHook("onSuspenseFallback", hook);
+}
+function onSuspenseResolve(hook) {
+    registerHook("onSuspenseResolve", hook);
+}
+function onSuspenseError(hook) {
+    registerHook("onSuspenseError", hook);
+}
+function onSuspenseRetry(hook) {
+    registerHook("onSuspenseRetry", hook);
 }
 
 function nextTick(handler) {
@@ -7031,8 +8934,158 @@ class ROUTER extends DefineElement {
         node.addDirective(new Directive('router', null));
     }
 }
+/**
+ * Teleport 元素
+ * @remarks
+ * 用 `<Teleport to="#target">...</Teleport>` 把内容移动到其它 DOM 容器
+ */
+class KEEPALIVE extends DefineElement {
+    constructor(node, module) {
+        super(node, module);
+        const style = node.getProp('style');
+        if (typeof style === 'string' && style.trim()) {
+            if (!/display\s*:/.test(style)) {
+                node.setProp('style', `${style};display:contents`);
+            }
+        }
+        else if (style === undefined) {
+            node.setProp('style', 'display:contents');
+        }
+        const keepAliveValue = {
+            disabled: node.hasProp('disabled') ? node.getProp('disabled') : false,
+            exclude: node.hasProp('exclude') ? node.getProp('exclude') : undefined,
+            include: node.hasProp('include') ? node.getProp('include') : undefined,
+            max: node.hasProp('max') ? node.getProp('max') : undefined,
+            scopeKey: node.key
+        };
+        node.delProp('disabled');
+        node.delProp('exclude');
+        node.delProp('include');
+        node.delProp('max');
+        for (const child of node.children || []) {
+            if (child.hasDirective('module')) {
+                child.addDirective(new Directive('keepalive', keepAliveValue));
+            }
+        }
+    }
+}
+class TRANSITION extends DefineElement {
+    constructor(node, module) {
+        var _a;
+        super(node, module);
+        const style = node.getProp('style');
+        if (typeof style === 'string' && style.trim()) {
+            if (!/display\s*:/.test(style)) {
+                node.setProp('style', `${style};display:contents`);
+            }
+        }
+        else if (style === undefined) {
+            node.setProp('style', 'display:contents');
+        }
+        const transitionValue = {
+            duration: node.getProp('duration'),
+            enterActiveClass: node.getProp('enter-active-class'),
+            enterDuration: node.getProp('enter-duration'),
+            enterFromClass: node.getProp('enter-from-class'),
+            enterToClass: node.getProp('enter-to-class'),
+            leaveActiveClass: node.getProp('leave-active-class'),
+            leaveDuration: node.getProp('leave-duration'),
+            leaveFromClass: node.getProp('leave-from-class'),
+            leaveToClass: node.getProp('leave-to-class'),
+            moveClass: node.getProp('move-class'),
+            moveDuration: node.getProp('move-duration'),
+            name: node.getProp('name')
+        };
+        [
+            'duration',
+            'enter-active-class',
+            'enter-duration',
+            'enter-from-class',
+            'enter-to-class',
+            'leave-active-class',
+            'leave-duration',
+            'leave-from-class',
+            'leave-to-class',
+            'move-class',
+            'move-duration',
+            'name'
+        ].forEach(propName => node.delProp(propName));
+        for (const child of node.children || []) {
+            if (child.tagName || ((_a = child.children) === null || _a === void 0 ? void 0 : _a.length)) {
+                child.addDirective(new Directive('transition', transitionValue));
+            }
+        }
+    }
+}
+class TRANSITIONGROUP extends DefineElement {
+    constructor(node, module) {
+        var _a;
+        super(node, module);
+        const style = node.getProp('style');
+        if (typeof style === 'string' && style.trim()) {
+            if (!/display\s*:/.test(style)) {
+                node.setProp('style', `${style};display:contents`);
+            }
+        }
+        else if (style === undefined) {
+            node.setProp('style', 'display:contents');
+        }
+        const transitionValue = {
+            duration: node.getProp('duration'),
+            enterActiveClass: node.getProp('enter-active-class'),
+            enterDuration: node.getProp('enter-duration'),
+            enterFromClass: node.getProp('enter-from-class'),
+            enterToClass: node.getProp('enter-to-class'),
+            group: true,
+            leaveActiveClass: node.getProp('leave-active-class'),
+            leaveDuration: node.getProp('leave-duration'),
+            leaveFromClass: node.getProp('leave-from-class'),
+            leaveToClass: node.getProp('leave-to-class'),
+            moveClass: node.getProp('move-class'),
+            moveDuration: node.getProp('move-duration'),
+            name: node.getProp('name')
+        };
+        [
+            'duration',
+            'enter-active-class',
+            'enter-duration',
+            'enter-from-class',
+            'enter-to-class',
+            'leave-active-class',
+            'leave-duration',
+            'leave-from-class',
+            'leave-to-class',
+            'move-class',
+            'move-duration',
+            'name'
+        ].forEach(propName => node.delProp(propName));
+        for (const child of node.children || []) {
+            if (child.tagName || ((_a = child.children) === null || _a === void 0 ? void 0 : _a.length)) {
+                child.addDirective(new Directive('transition', transitionValue));
+            }
+        }
+    }
+}
+class TELEPORT extends DefineElement {
+    constructor(node, module) {
+        super(node, module);
+        const style = node.getProp('style');
+        if (typeof style === 'string' && style.trim()) {
+            if (!/display\s*:/.test(style)) {
+                node.setProp('style', `${style};display:contents`);
+            }
+        }
+        else if (style === undefined) {
+            node.setProp('style', 'display:contents');
+        }
+        node.addDirective(new Directive('teleport', null));
+    }
+}
+DefineElementManager.add([KEEPALIVE]);
+DefineElementManager.add([TRANSITION]);
+DefineElementManager.add([TRANSITIONGROUP]);
 //添加到自定义元素管理器
-DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLOT, ROUTE, ROUTER]);
+DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLOT, ROUTE, ROUTER, TELEPORT]);
 
 /**
      * 指令类型初始化
@@ -7052,7 +9105,17 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
         if (!this.value) {
             return false;
         }
+        const requestedClass = typeof this.value === 'string'
+            ? ModuleFactory.getClass(this.value)
+            : typeof this.value === 'function'
+                ? this.value
+                : undefined;
         let m = module.objectManager.getDomParam(dom.key, '$savedModule');
+        if (m && requestedClass && m.constructor !== requestedClass) {
+            m.destroy();
+            module.objectManager.removeDomParam(dom.key, '$savedModule');
+            m = undefined;
+        }
         if (!m) {
             m = ModuleFactory.get(this.value);
             if (!m) {
@@ -7089,6 +9152,20 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
         m.setProps(o, dom);
         return true;
     }, 8);
+    Nodom.createDirective('keepalive', function (module, dom) {
+        var _a;
+        const keepAliveConfig = resolveKeepAliveConfig(module, dom, this.value);
+        dom.keepAlive = keepAliveConfig;
+        const childModule = dom.childModuleId
+            ? ModuleFactory.get(dom.childModuleId)
+            : module.objectManager.getDomParam(dom.key, '$savedModule');
+        (_a = childModule === null || childModule === void 0 ? void 0 : childModule.setKeepAliveManaged) === null || _a === void 0 ? void 0 : _a.call(childModule, isKeepAliveDirectiveActive(keepAliveConfig));
+        return true;
+    }, 9);
+    Nodom.createDirective('transition', function (module, dom) {
+        dom.transition = resolveTransitionConfig(module, dom, this.value);
+        return true;
+    }, 9);
     /**
      *  model指令
      */
@@ -7460,11 +9537,26 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
         return true;
     }, 10);
     /**
+     * teleport 指令
+     */
+    Nodom.createDirective('teleport', function (module, dom) {
+        var _a, _b, _c, _d;
+        const teleportDom = dom;
+        teleportDom.teleportTarget = (_b = (_a = dom.props) === null || _a === void 0 ? void 0 : _a['to']) !== null && _b !== void 0 ? _b : (_c = dom.props) === null || _c === void 0 ? void 0 : _c['target'];
+        teleportDom.teleportDisabled = resolveTeleportDisabled((_d = dom.props) === null || _d === void 0 ? void 0 : _d['disabled']);
+        if (teleportDom.props) {
+            delete teleportDom.props['to'];
+            delete teleportDom.props['target'];
+            delete teleportDom.props['disabled'];
+        }
+        return true;
+    }, 10);
+    /**
      * 插头指令
      * 用于模块中，可实现同名替换
      */
     Nodom.createDirective('slot', function (module, dom) {
-        var _a;
+        var _a, _b;
         this.value || (this.value = 'default');
         const mid = dom.parent.childModuleId;
         //父dom有module指令，表示为替代节点，替换子模块中的对应的slot节点；否则为子模块定义slot节点
@@ -7474,6 +9566,7 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
             if (!m) {
                 return false;
             }
+            const previousSlot = m.slots.get(this.value);
             m.slots.set(this.value, dom);
             dom.slotModuleId = mid;
             //保持key带slot标识
@@ -7481,8 +9574,12 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
                 dom.key += 's';
                 updateKey(dom.vdom, 's');
             }
+            if (previousSlot !== dom) {
+                (_a = m.markDirty) === null || _a === void 0 ? void 0 : _a.call(m, `slots.${this.value}`);
+                Renderer.add(m);
+            }
             //innerrender，此次不渲染
-            if ((_a = dom.vdom.props) === null || _a === void 0 ? void 0 : _a.has('innerrender')) {
+            if ((_b = dom.vdom.props) === null || _b === void 0 ? void 0 : _b.has('innerrender')) {
                 return false;
             }
             return true;
@@ -7506,8 +9603,9 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
             if (sdom) {
                 if (dom.vdom.hasProp('innerrender')) { //内部数据渲染
                     if (sdom.vdom.children && dom.parent) {
+                        const slotModel = createInnerRenderSlotModel(dom.model, sdom.model);
                         for (let c of sdom.vdom.children) {
-                            Renderer.renderDom(module, c, dom.model, dom.parent, dom.key);
+                            Renderer.renderDom(module, c, slotModel, dom.parent, dom.key);
                         }
                     }
                 }
@@ -7524,6 +9622,179 @@ DefineElementManager.add([MODULE, FOR, RECUR, IF, ELSE, ELSEIF, ENDIF, SHOW, SLO
         }
     }, 5);
 }());
+function createInnerRenderSlotModel(innerModel, outerModel) {
+    if (!innerModel || typeof innerModel !== 'object') {
+        return outerModel || innerModel;
+    }
+    if (!outerModel || typeof outerModel !== 'object') {
+        return innerModel;
+    }
+    return new Proxy(innerModel, {
+        get(target, key, receiver) {
+            if (Reflect.has(target, key)) {
+                return Reflect.get(target, key, receiver);
+            }
+            return Reflect.get(outerModel, key, outerModel);
+        },
+        has(target, key) {
+            return Reflect.has(target, key) || Reflect.has(outerModel, key);
+        },
+        ownKeys(target) {
+            return Array.from(new Set([
+                ...Reflect.ownKeys(outerModel),
+                ...Reflect.ownKeys(target)
+            ]));
+        },
+        getOwnPropertyDescriptor(target, key) {
+            return Reflect.getOwnPropertyDescriptor(target, key)
+                || Reflect.getOwnPropertyDescriptor(outerModel, key)
+                || {
+                    configurable: true,
+                    enumerable: true,
+                    writable: true,
+                    value: undefined
+                };
+        },
+        set(target, key, value, receiver) {
+            if (Reflect.has(target, key) || !Reflect.has(outerModel, key)) {
+                return Reflect.set(target, key, value, receiver);
+            }
+            return Reflect.set(outerModel, key, value);
+        }
+    });
+}
+function resolveTeleportDisabled(value) {
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return normalized === '' || normalized === 'true' || normalized === '1';
+    }
+    return value === true;
+}
+function resolveKeepAliveEnabled(value) {
+    if (value === undefined || value === null) {
+        return true;
+    }
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return !(normalized === 'false' || normalized === '0');
+    }
+    return value !== false;
+}
+function resolveKeepAliveConfig(module, dom, value) {
+    if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return {
+            disabled: !resolveKeepAliveEnabled(value),
+            scopeKey: dom.key
+        };
+    }
+    const config = value;
+    return {
+        disabled: resolveKeepAliveDisabled(resolveDirectiveValue(module, dom, config.disabled)),
+        exclude: normalizeKeepAlivePattern(resolveDirectiveValue(module, dom, config.exclude)),
+        include: normalizeKeepAlivePattern(resolveDirectiveValue(module, dom, config.include)),
+        max: resolveKeepAliveMax(resolveDirectiveValue(module, dom, config.max)),
+        scopeKey: typeof config.scopeKey === 'number' || typeof config.scopeKey === 'string'
+            ? config.scopeKey
+            : dom.key
+    };
+}
+function resolveKeepAliveDisabled(value) {
+    if (value === undefined || value === null) {
+        return false;
+    }
+    return resolveKeepAliveEnabled(value);
+}
+function normalizeKeepAlivePattern(value) {
+    if (value instanceof RegExp) {
+        return value;
+    }
+    if (Array.isArray(value)) {
+        const normalized = value
+            .map(item => String(item !== null && item !== void 0 ? item : '').trim())
+            .filter(item => item.length > 0);
+        return normalized.length > 0 ? normalized : undefined;
+    }
+    if (typeof value === 'string') {
+        const normalized = value.trim();
+        return normalized ? normalized : undefined;
+    }
+    return undefined;
+}
+function isKeepAliveDirectiveActive(value) {
+    if (value === undefined || value === false) {
+        return false;
+    }
+    if (value === true) {
+        return true;
+    }
+    return !value.disabled;
+}
+function resolveKeepAliveMax(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return Math.max(0, Math.floor(value));
+    }
+    if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value.trim());
+        if (Number.isFinite(parsed)) {
+            return Math.max(0, Math.floor(parsed));
+        }
+    }
+    return undefined;
+}
+function resolveTransitionConfig(module, dom, value) {
+    if (!value || typeof value !== 'object') {
+        return {
+            name: 'nd'
+        };
+    }
+    const config = value;
+    return {
+        duration: resolveTransitionDuration(resolveDirectiveValue(module, dom, config.duration)),
+        enterActiveClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.enterActiveClass)),
+        enterDuration: resolveTransitionDuration(resolveDirectiveValue(module, dom, config.enterDuration)),
+        enterFromClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.enterFromClass)),
+        enterToClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.enterToClass)),
+        group: resolveDirectiveValue(module, dom, config.group) === true,
+        leaveActiveClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.leaveActiveClass)),
+        leaveDuration: resolveTransitionDuration(resolveDirectiveValue(module, dom, config.leaveDuration)),
+        leaveFromClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.leaveFromClass)),
+        leaveToClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.leaveToClass)),
+        moveClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.moveClass)),
+        moveDuration: resolveTransitionDuration(resolveDirectiveValue(module, dom, config.moveDuration)),
+        name: normalizeTransitionName(resolveDirectiveValue(module, dom, config.name))
+    };
+}
+function resolveDirectiveValue(module, dom, value) {
+    if (value && typeof value === 'object' && typeof value.val === 'function') {
+        return value.val(module, dom.model);
+    }
+    return value;
+}
+function normalizeTransitionName(value) {
+    if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+    }
+    return 'nd';
+}
+function normalizeTransitionClass(value) {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const normalized = value.trim();
+    return normalized ? normalized : undefined;
+}
+function resolveTransitionDuration(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return Math.max(0, value);
+    }
+    if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value.trim());
+        if (Number.isFinite(parsed)) {
+            return Math.max(0, parsed);
+        }
+    }
+    return undefined;
+}
 
-export { App, Compiler, CssManager, DefineElement, DefineElementManager, DiffTool, Directive, DirectiveManager, DirectiveType, DomManager, EModuleState, EventFactory, Expression, GlobalCache, Model, ModelManager, Module, ModuleFactory, NCache, NError, NEvent, Nodom, NodomMessage, NodomMessage_en, NodomMessage_zh, ObjectManager, PatchFlags, Renderer, RequestManager, Route, Router, RuntimeConfig, Scheduler, StructureFlags, Util, VirtualDom, Watcher, appendRenderedChild, bindStateHost, canReuseRenderedSubtree, cloneStateValue, computed, configureReactivityRuntime, createApp, createAppContext, createRouteLocation, defineProps, findPreviousChild, getCurrentScope, getSequence, hasDependencyMatch, inject, installPlugin, isActiveRoutePath, isComputed, isReactive, isRef, isRelatedDependencyPath, joinRoutePath, mergeDependencyPaths, mergeRouteMeta, nextTick, normalizeChildRoutePath, normalizeDependencyPath, normalizeRoutePath, onBeforeMount, onBeforeRender, onBeforeUnmount, onBeforeUpdate, onInit, onMounted, onRender, onUnmounted, onUpdated, parseRouteQuery, parseRouteUrl, provide, reactive, ref, removeReactiveOwner, resolveRenderedKey, reuseRenderedDom, setRuntimeDebug, setRuntimeLang, shouldSkipModelProxy, splitRoutePath, stringifyRouteQuery, toRaw, toValue, track, trigger, unbindStateHost, unref, unwrapState, useApp, useAttrs, useComputed, useInject, useModel, useModule, useProps, useReactive, useRef, useRoute, useRouter, useSlots, useState, useWatch, useWatchEffect, watch, watchEffect, withCurrentScope, withDefaults };
+export { App, Compiler, CssManager, DefineElement, DefineElementManager, DiffTool, Directive, DirectiveManager, DirectiveType, DomManager, EModuleState, EventFactory, Expression, GlobalCache, Model, ModelManager, Module, ModuleFactory, NCache, NError, NEvent, Nodom, NodomMessage, NodomMessage_en, NodomMessage_zh, ObjectManager, PatchFlags, Renderer, RequestManager, Route, Router, RuntimeConfig, Scheduler, StructureFlags, Suspense, Teleport, Util, VirtualDom, Watcher, appendRenderedChild, bindStateHost, canReuseRenderedSubtree, cloneStateValue, computed, configureReactivityRuntime, createApp, createAppContext, createRouteLocation, defineAsyncComponent, defineEmits, defineExpose, defineModel, defineProps, defineSlots, findPreviousChild, getAsyncComponentStatus, getCurrentScope, getSequence, hasDependencyMatch, inject, installPlugin, isActiveRoutePath, isComputed, isReactive, isRef, isRelatedDependencyPath, joinRoutePath, mergeDependencyPaths, mergeRouteMeta, nextTick, normalizeChildRoutePath, normalizeDependencyPath, normalizeRoutePath, onActivated, onAfterEnter, onAfterLeave, onAfterMove, onBeforeEnter, onBeforeLeave, onBeforeMount, onBeforeMove, onBeforeRender, onBeforeUnmount, onBeforeUpdate, onDeactivated, onEnter, onEnterCancelled, onInit, onLeave, onLeaveCancelled, onMounted, onMove, onMoveCancelled, onRender, onSuspenseError, onSuspenseFallback, onSuspensePending, onSuspenseResolve, onSuspenseRetry, onUnmounted, onUpdated, parseRouteQuery, parseRouteUrl, provide, reactive, ref, removeReactiveOwner, resolveAsyncComponentClass, resolveRenderedKey, retryAsyncComponent, reuseRenderedDom, setRuntimeDebug, setRuntimeLang, shouldSkipModelProxy, splitRoutePath, stringifyRouteQuery, subscribeAsyncComponent, toRaw, toValue, track, trigger, unbindStateHost, unref, unwrapState, useApp, useAttrs, useComputed, useInject, useModel, useModule, useProps, useReactive, useRef, useRoute, useRouter, useSlots, useState, useWatch, useWatchEffect, watch, watchEffect, withCurrentScope, withDefaults };
 //# sourceMappingURL=nodom.esm.js.map

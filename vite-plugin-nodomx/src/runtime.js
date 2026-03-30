@@ -17,11 +17,41 @@ export async function bootstrapNodomxViteApp(options) {
             hot.data ||= {};
             hot.data.__nodomxChangedFiles = extractChangedFiles(payload);
         });
+        hot.on("nodomx:nd-update-meta", (payload) => {
+            hot.data ||= {};
+            hot.data.__nodomxChangedBlockMap ||= {};
+            const file = normalizePath(payload?.file || "");
+            if (!file) {
+                return;
+            }
+            hot.data.__nodomxChangedBlockMap[file] = {
+                blocks: Array.isArray(payload?.blocks) ? payload.blocks.slice() : [],
+                styleOnly: !!payload?.styleOnly
+            };
+        });
+        hot.on("nodomx:nd-serve-status", (payload) => {
+            hot.data ||= {};
+            hot.data.__nodomxServeStatusMap ||= {};
+            const file = normalizePath(payload?.file || "");
+            if (!file) {
+                return;
+            }
+            hot.data.__nodomxServeStatusMap[file] = {
+                activeOutput: payload?.activeOutput || "latest",
+                changedBlocks: Array.isArray(payload?.changedBlocks) ? payload.changedBlocks.slice() : [],
+                file,
+                hasLastSuccessfulSnapshot: !!payload?.hasLastSuccessfulSnapshot,
+                lastSuccessfulAt: payload?.lastSuccessfulAt || null,
+                preservedBlocks: Array.isArray(payload?.preservedBlocks) ? payload.preservedBlocks.slice() : [],
+                recoveryHint: payload?.recoveryHint || "",
+                state: payload?.state || "healthy"
+            };
+        });
     }
 
     const initialModule = await load();
     const initialApp = resolveModuleClass(initialModule);
-    mountResolvedModule(initialApp, nodom, selector, []);
+    mountResolvedModule(initialApp, nodom, selector, [], null, null);
 
     if (hot?.accept) {
         const acceptUpdate = async (acceptedModule) => {
@@ -29,7 +59,9 @@ export async function bootstrapNodomxViteApp(options) {
                 const nextModule = resolveAcceptedModule(acceptedModule) || await load();
                 const nextApp = resolveModuleClass(nextModule);
                 const changedFiles = readChangedFiles(hot);
-                mountResolvedModule(nextApp, nodom, selector, changedFiles);
+                const changedMeta = readChangedMeta(hot, changedFiles);
+                const serveStatus = readRelevantServeStatus(hot, changedFiles);
+                mountResolvedModule(nextApp, nodom, selector, changedFiles, changedMeta, serveStatus);
             } catch (error) {
                 console.error("[nodomx-vite] hot update failed.", error);
                 if (typeof hot.invalidate === "function") {
@@ -48,12 +80,26 @@ export async function bootstrapNodomxViteApp(options) {
     return initialApp;
 }
 
-function mountResolvedModule(App, nodom, selector, changedFiles) {
+function mountResolvedModule(App, nodom, selector, changedFiles, changedMeta = null, serveStatus = null) {
+    const hotUpdate = summarizeHotUpdate(changedFiles, changedMeta);
+    nodom.__ndViteHotMeta = {
+        changedBlocks: hotUpdate.changedBlocks,
+        changedFiles: hotUpdate.changedFiles,
+        ndFiles: hotUpdate.ndFiles,
+        otherFiles: hotUpdate.otherFiles,
+        serveStatus,
+        strategy: hotUpdate.strategy,
+        styleOnlyFiles: hotUpdate.styleOnlyFiles
+    };
+    if (hotUpdate.strategy === "style-only-skip-reload") {
+        return;
+    }
     const hotState = typeof nodom.captureHotState === "function"
         ? nodom.captureHotState()
         : undefined;
+    const reloadTargets = hotUpdate.ndFiles.length > 0 ? hotUpdate.ndFiles : hotUpdate.changedFiles;
     if (typeof nodom.hotReload === "function") {
-        nodom.hotReload(App, selector, hotState, changedFiles);
+        nodom.hotReload(App, selector, hotState, reloadTargets);
     } else {
         nodom.remount(App, selector);
     }
@@ -91,6 +137,55 @@ function readChangedFiles(hot) {
     return changedFiles;
 }
 
+function readChangedMeta(hot, changedFiles) {
+    if (!hot?.data) {
+        return {
+            changedBlocks: {},
+            styleOnlyFiles: []
+        };
+    }
+    const metaMap = hot.data.__nodomxChangedBlockMap || {};
+    const changedBlocks = {};
+    const styleOnlyFiles = [];
+    for (const file of Array.isArray(changedFiles) ? changedFiles : []) {
+        const normalized = normalizePath(file);
+        const meta = metaMap[normalized];
+        if (!meta) {
+            continue;
+        }
+        changedBlocks[normalized] = Array.isArray(meta.blocks) ? meta.blocks.slice() : [];
+        if (meta.styleOnly) {
+            styleOnlyFiles.push(normalized);
+        }
+        delete metaMap[normalized];
+    }
+    hot.data.__nodomxChangedBlockMap = metaMap;
+    return {
+        changedBlocks,
+        styleOnlyFiles
+    };
+}
+
+function readRelevantServeStatus(hot, changedFiles) {
+    const statusMap = hot?.data?.__nodomxServeStatusMap || {};
+    const normalizedFiles = Array.isArray(changedFiles)
+        ? changedFiles.map(file => normalizePath(file).replace(/\?.*$/, "")).filter(Boolean)
+        : [];
+    for (let index = normalizedFiles.length - 1; index >= 0; index -= 1) {
+        const file = normalizedFiles[index];
+        if (statusMap[file]) {
+            const matched = statusMap[file];
+            delete statusMap[file];
+            return {
+                ...matched,
+                changedBlocks: Array.isArray(matched.changedBlocks) ? matched.changedBlocks.slice() : [],
+                preservedBlocks: Array.isArray(matched.preservedBlocks) ? matched.preservedBlocks.slice() : []
+            };
+        }
+    }
+    return null;
+}
+
 function extractChangedFiles(payload) {
     if (!payload || !Array.isArray(payload.updates)) {
         return [];
@@ -108,4 +203,43 @@ function extractChangedFiles(payload) {
 
 function normalizePath(file) {
     return String(file || "").replace(/\\/g, "/");
+}
+
+function summarizeHotUpdate(changedFiles, changedMeta) {
+    const changedBlocks = changedMeta?.changedBlocks || {};
+    const styleOnlyFiles = Array.isArray(changedMeta?.styleOnlyFiles)
+        ? changedMeta.styleOnlyFiles.map(normalizePath)
+        : [];
+    const styleOnlySet = new Set(styleOnlyFiles);
+    const normalizedChangedFiles = Array.isArray(changedFiles)
+        ? changedFiles.map(normalizePath).filter(Boolean)
+        : [];
+    const ndFiles = [];
+    const otherFiles = [];
+
+    for (const file of normalizedChangedFiles) {
+        const cleanFile = file.replace(/\?.*$/, "");
+        if (/\.nd$/i.test(cleanFile)) {
+            if (!ndFiles.includes(cleanFile)) {
+                ndFiles.push(cleanFile);
+            }
+        } else if (!otherFiles.includes(file)) {
+            otherFiles.push(file);
+        }
+    }
+
+    const strategy = ndFiles.length > 0
+        ? (otherFiles.length === 0 && ndFiles.every(file => styleOnlySet.has(file))
+            ? "style-only-skip-reload"
+            : "nd-block-hmr")
+        : "full-reload";
+
+    return {
+        changedBlocks,
+        changedFiles: normalizedChangedFiles,
+        ndFiles,
+        otherFiles,
+        strategy,
+        styleOnlyFiles
+    };
 }

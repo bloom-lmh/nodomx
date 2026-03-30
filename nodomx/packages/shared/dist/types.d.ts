@@ -57,9 +57,35 @@ export interface VirtualDomLike extends Record<string | symbol, any> {
     directives?: unknown[];
     props?: Map<string, unknown>;
     events?: EventLike[];
+    teleportTarget?: unknown;
+    teleportDisabled?: boolean;
+    transition?: TransitionConfig;
     add?(dom: VirtualDomLike, index?: number): void;
     getDirective?(name: string): unknown;
 }
+export type TransitionConfig = {
+    name?: string;
+    duration?: number;
+    enterDuration?: number;
+    leaveDuration?: number;
+    moveDuration?: number;
+    enterFromClass?: string;
+    enterActiveClass?: string;
+    enterToClass?: string;
+    group?: boolean;
+    leaveFromClass?: string;
+    leaveActiveClass?: string;
+    leaveToClass?: string;
+    moveClass?: string;
+};
+export type KeepAliveMatchPattern = string | string[] | RegExp;
+export type KeepAliveConfig = {
+    scopeKey?: string | number;
+    disabled?: boolean;
+    include?: KeepAliveMatchPattern;
+    exclude?: KeepAliveMatchPattern;
+    max?: number;
+};
 export interface ModuleLike extends Record<string | symbol, any> {
     id: number;
     model?: ModelLike;
@@ -168,6 +194,10 @@ export type RenderedDom = {
     moduleId?: number;
     slotModuleId?: number;
     childModuleId?: number;
+    keepAlive?: boolean | KeepAliveConfig;
+    teleportTarget?: unknown;
+    teleportDisabled?: boolean;
+    transition?: TransitionConfig;
     vdom?: VirtualDomLike;
     isSvg?: boolean;
     node?: Node;

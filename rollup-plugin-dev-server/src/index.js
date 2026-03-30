@@ -335,7 +335,7 @@ async function listenWithFallback(server, options) {
         try {
             return await listenOnce(server, currentPort, options.host);
         } catch (error) {
-            if (error?.code !== "EADDRINUSE" || attempt === options.portRetryCount) {
+            if (!isRetryableListenError(error) || attempt === options.portRetryCount) {
                 throw error;
             }
             currentPort += 1;
@@ -361,6 +361,10 @@ function listenOnce(server, port, host) {
         server.once("listening", handleListening);
         server.listen(port, host);
     });
+}
+
+function isRetryableListenError(error) {
+    return error?.code === "EADDRINUSE" || error?.code === "EACCES";
 }
 
 function printServerBanner({ host, port, rootDir, distDir }) {

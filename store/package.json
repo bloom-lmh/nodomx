@@ -1,0 +1,43 @@
+{
+  "name": "@nodomx/store",
+  "version": "0.2.4",
+  "description": "Official store primitives for building shared state in NodomX applications.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bloom-lmh/nodomx.git",
+    "directory": "store"
+  },
+  "homepage": "https://github.com/bloom-lmh/nodomx",
+  "bugs": {
+    "url": "https://github.com/bloom-lmh/nodomx/issues"
+  },
+  "keywords": [
+    "nodomx",
+    "store",
+    "state",
+    "shared-state"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node ./tests/store.smoke.mjs",
+    "test": "node ./tests/store.smoke.mjs"
+  },
+  "dependencies": {
+    "nodomx": "^0.2.4"
+  }
+}

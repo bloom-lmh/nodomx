@@ -1,0 +1,44 @@
+<template>
+  <section class="hero-card">
+    <p class="eyebrow">Starter</p>
+    <h2>Single file components feel familiar</h2>
+    <p class="copy">
+      You can keep template syntax close to Nodom while organizing the project
+      like a Vue app with `components`, `views`, and `router`.
+    </p>
+  </section>
+</template>
+
+<script setup>
+</script>
+
+<style scoped>
+.hero-card {
+  padding: 28px;
+  border-radius: 28px;
+  background: linear-gradient(135deg, #0f766e, #115e59);
+  color: #f8fafc;
+  box-shadow: 0 24px 60px rgba(15, 118, 110, 0.24);
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  opacity: 0.78;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 30px;
+  line-height: 1.05;
+}
+
+.copy {
+  margin: 0;
+  max-width: 52ch;
+  color: rgba(248, 250, 252, 0.88);
+  line-height: 1.65;
+}
+</style>

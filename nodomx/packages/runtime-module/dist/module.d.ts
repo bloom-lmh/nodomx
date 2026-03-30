@@ -24,6 +24,7 @@ export declare class Module {
     props: Record<string, unknown>;
     appContext?: AppContext;
     private provides?;
+    exposed?: Record<string, unknown>;
     modules: unknown[];
     excludedProps: string[];
     private oldTemplate;
@@ -33,6 +34,8 @@ export declare class Module {
     private compositionHooks;
     private setupState;
     private dirtyPaths;
+    private keepAliveManaged;
+    private keepAliveDeactivated;
     constructor(id?: number);
     init(): void;
     template(props?: object): string;
@@ -51,6 +54,7 @@ export declare class Module {
     applyHotSnapshot(snapshot: ModuleHotSnapshot): void;
     getParent(): Module;
     doModuleEvent(eventName: string): boolean;
+    emitHook(eventName: string, ...args: unknown[]): boolean;
     setProps(props: Record<string, unknown>, dom: RenderedDom): void;
     private compile;
     setExcludeProps(props: string[]): void;
@@ -65,7 +69,9 @@ export declare class Module {
     addCompositionHook(name: string, hook: UnknownMethod): void;
     provide<T>(key: InjectionKey<T>, value: T): void;
     inject<T>(key: InjectionKey<T>, defaultValue?: T): T | undefined;
+    setExposed(exposed: Record<string, unknown>): void;
     addCompositionCleanup(cleanup: () => void): void;
+    setKeepAliveManaged(managed: boolean): void;
     private initSetupState;
     private applyGlobalProperties;
     private runCompositionHooks;

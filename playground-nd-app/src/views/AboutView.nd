@@ -1,0 +1,63 @@
+<template>
+  <section class="panel">
+    <p class="eyebrow">About</p>
+    <h2>NodomX + `.nd`</h2>
+    <p class="copy">
+      This playground keeps the NodomX runtime and template model, but lays the
+      files out in a way that feels closer to a Vue project.
+    </p>
+    <div class="meta">
+      <span class="chip">components</span>
+      <span class="chip">views</span>
+      <span class="chip">router</span>
+      <span class="chip">script setup</span>
+    </div>
+  </section>
+</template>
+
+<script setup>
+
+</script>
+
+<style scoped>
+.panel {
+  padding: 28px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: #0f766e;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h2 {
+  margin: 0 0 12px;
+  color: #0f172a;
+}
+
+.copy {
+  margin: 0;
+  color: #334155;
+  line-height: 1.7;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #dff6f2;
+  color: #115e59;
+  font-size: 14px;
+}
+</style>

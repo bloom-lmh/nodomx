@@ -60,6 +60,14 @@ export const publishablePackages = [
         name: "nodomx"
     },
     {
+        dir: "store",
+        name: "@nodomx/store"
+    },
+    {
+        dir: "ssr",
+        name: "@nodomx/ssr"
+    },
+    {
         dir: "nd-compiler",
         name: "@nodomx/nd-compiler"
     },
@@ -78,6 +86,10 @@ export const publishablePackages = [
     {
         dir: "create-nodomx",
         name: "create-nodomx"
+    },
+    {
+        dir: "test-utils",
+        name: "@nodomx/test-utils"
     }
 ];
 

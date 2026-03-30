@@ -1,0 +1,77 @@
+<template>
+  <section class="panel">
+    <p class="eyebrow">Home + Store</p>
+    <h2>{{headline}}</h2>
+    <p class="copy">shared count: {{store.count}} / double: {{store.doubleCount}}</p>
+    <div class="actions">
+      <button e-click="increment">increment</button>
+      <button class="ghost" e-click="reset">reset</button>
+    </div>
+  </section>
+</template>
+
+<script setup>
+import { useState } from "nodomx";
+import { useCounterStore } from "../stores/index";
+
+const headline = useState("Router and store can ship together in the Vite starter");
+const store = useCounterStore();
+
+const increment = () => {
+  store.increment();
+};
+
+const reset = () => {
+  store.reset();
+};
+</script>
+
+<style scoped>
+.panel {
+  padding: 28px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+}
+
+.eyebrow {
+  margin: 0;
+  color: #0369a1;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h2 {
+  margin: 10px 0;
+  color: #0f172a;
+  font-size: 28px;
+}
+
+.copy {
+  margin: 0;
+  color: #475569;
+  font-size: 17px;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: #0f766e;
+  color: #fff;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+button.ghost {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+</style>

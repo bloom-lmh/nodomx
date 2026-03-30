@@ -1,0 +1,42 @@
+<template>
+  <section class="panel">
+    <p class="eyebrow">About</p>
+    <h2>{{headline}}</h2>
+    <p class="copy">The router option scaffolds route registration, view files, and a shell layout.</p>
+  </section>
+</template>
+
+<script setup>
+import { useState } from "nodomx";
+
+const headline = useState("Use the official router without bringing in a third-party package");
+</script>
+
+<style scoped>
+.panel {
+  padding: 28px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+}
+
+.eyebrow {
+  margin: 0;
+  color: #7c3aed;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h2 {
+  margin: 10px 0;
+  color: #0f172a;
+  font-size: 28px;
+}
+
+.copy {
+  margin: 0;
+  color: #475569;
+  font-size: 17px;
+}
+</style>

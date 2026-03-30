@@ -10,6 +10,28 @@ import {
     Renderer,
     Util
 } from "@nodomx/core";
+import type { KeepAliveConfig } from "@nodomx/shared";
+
+type TeleportRenderedDom = RenderedDom & {
+    keepAlive?: boolean | KeepAliveConfig;
+    transition?: {
+        duration?: number;
+        enterActiveClass?: string;
+        enterDuration?: number;
+        enterFromClass?: string;
+        enterToClass?: string;
+        group?: boolean;
+        leaveActiveClass?: string;
+        leaveDuration?: number;
+        leaveFromClass?: string;
+        leaveToClass?: string;
+        moveClass?: string;
+        moveDuration?: number;
+        name?: string;
+    };
+    teleportDisabled?: boolean;
+    teleportTarget?: unknown;
+};
 
 /**
      * 指令类型初始化
@@ -31,7 +53,17 @@ import {
             if(!this.value){
                 return false;
             }
+            const requestedClass = typeof this.value === 'string'
+                ? ModuleFactory.getClass(this.value)
+                : typeof this.value === 'function'
+                    ? this.value
+                    : undefined;
             let m = <Module>module.objectManager.getDomParam(dom.key,'$savedModule');
+            if(m && requestedClass && m.constructor !== requestedClass){
+                m.destroy();
+                module.objectManager.removeDomParam(dom.key,'$savedModule');
+                m = undefined;
+            }
             if(!m){
                 m = ModuleFactory.get(this.value) as Module;
                 if (!m) {
@@ -67,6 +99,30 @@ import {
             return true;
         },
         8
+    );
+
+    Nodom.createDirective(
+        'keepalive',
+        function (module: Module, dom: RenderedDom) {
+            const keepAliveConfig = resolveKeepAliveConfig(module, dom, this.value);
+            (dom as TeleportRenderedDom).keepAlive = keepAliveConfig;
+            const childModule = dom.childModuleId
+                ? ModuleFactory.get(dom.childModuleId)
+                : module.objectManager.getDomParam(dom.key,'$savedModule');
+            (childModule as Module & { setKeepAliveManaged?: (managed: boolean) => void } | undefined)
+                ?.setKeepAliveManaged?.(isKeepAliveDirectiveActive(keepAliveConfig));
+            return true;
+        },
+        9
+    );
+
+    Nodom.createDirective(
+        'transition',
+        function (module: Module, dom: RenderedDom) {
+            (dom as TeleportRenderedDom).transition = resolveTransitionConfig(module, dom, this.value);
+            return true;
+        },
+        9
     );
 
     /**
@@ -483,6 +539,24 @@ import {
     );
 
     /**
+     * teleport 指令
+     */
+    Nodom.createDirective('teleport',
+        function (module: Module, dom: RenderedDom) {
+            const teleportDom = dom as TeleportRenderedDom;
+            teleportDom.teleportTarget = dom.props?.['to'] ?? dom.props?.['target'];
+            teleportDom.teleportDisabled = resolveTeleportDisabled(dom.props?.['disabled']);
+            if(teleportDom.props){
+                delete teleportDom.props['to'];
+                delete teleportDom.props['target'];
+                delete teleportDom.props['disabled'];
+            }
+            return true;
+        },
+        10
+    );
+
+    /**
      * 插头指令
      * 用于模块中，可实现同名替换
      */
@@ -497,12 +571,17 @@ import {
                 if(!m){
                     return false;
                 }
+                const previousSlot = m.slots.get(this.value);
                 m.slots.set(this.value,dom);
                 dom.slotModuleId = mid;
                 //保持key带slot标识
                 if(!dom.vdom.slotModuleId){
                     dom.key += 's';
                     updateKey(dom.vdom , 's');
+                }
+                if(previousSlot !== dom){
+                    m.markDirty?.(`slots.${this.value}`);
+                    Renderer.add(m);
                 }
                 //innerrender，此次不渲染
                 if(dom.vdom.props?.has('innerrender')){
@@ -529,8 +608,9 @@ import {
                 if(sdom){
                     if(dom.vdom.hasProp('innerrender')){  //内部数据渲染
                         if(sdom.vdom.children && dom.parent){
+                            const slotModel = createInnerRenderSlotModel(dom.model, sdom.model);
                             for(let c of sdom.vdom.children){
-                                Renderer.renderDom(module,c as any,dom.model,dom.parent,dom.key);
+                                Renderer.renderDom(module,c as any,slotModel as any,dom.parent,dom.key);
                             }
                         }
                     }else{ //替换为存储的已渲染节点
@@ -548,3 +628,189 @@ import {
         5
     );
 }());
+
+function createInnerRenderSlotModel(innerModel: unknown, outerModel: unknown){
+    if(!innerModel || typeof innerModel !== 'object'){
+        return outerModel || innerModel;
+    }
+    if(!outerModel || typeof outerModel !== 'object'){
+        return innerModel;
+    }
+    return new Proxy(innerModel as object, {
+        get(target, key, receiver){
+            if(Reflect.has(target, key)){
+                return Reflect.get(target, key, receiver);
+            }
+            return Reflect.get(outerModel as object, key, outerModel);
+        },
+        has(target, key){
+            return Reflect.has(target, key) || Reflect.has(outerModel as object, key);
+        },
+        ownKeys(target){
+            return Array.from(new Set([
+                ...Reflect.ownKeys(outerModel as object),
+                ...Reflect.ownKeys(target)
+            ]));
+        },
+        getOwnPropertyDescriptor(target, key){
+            return Reflect.getOwnPropertyDescriptor(target, key)
+                || Reflect.getOwnPropertyDescriptor(outerModel as object, key)
+                || {
+                    configurable: true,
+                    enumerable: true,
+                    writable: true,
+                    value: undefined
+                };
+        },
+        set(target, key, value, receiver){
+            if(Reflect.has(target, key) || !Reflect.has(outerModel as object, key)){
+                return Reflect.set(target, key, value, receiver);
+            }
+            return Reflect.set(outerModel as object, key, value);
+        }
+    });
+}
+
+function resolveTeleportDisabled(value: unknown): boolean {
+    if(typeof value === 'string'){
+        const normalized = value.trim().toLowerCase();
+        return normalized === '' || normalized === 'true' || normalized === '1';
+    }
+    return value === true;
+}
+
+function resolveKeepAliveEnabled(value: unknown): boolean {
+    if(value === undefined || value === null){
+        return true;
+    }
+    if(typeof value === 'string'){
+        const normalized = value.trim().toLowerCase();
+        return !(normalized === 'false' || normalized === '0');
+    }
+    return value !== false;
+}
+
+function resolveKeepAliveConfig(module: Module, dom: RenderedDom, value: unknown): KeepAliveConfig {
+    if(value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)){
+        return {
+            disabled: !resolveKeepAliveEnabled(value),
+            scopeKey: dom.key
+        };
+    }
+    const config = value as Record<string, unknown>;
+    return {
+        disabled: resolveKeepAliveDisabled(resolveDirectiveValue(module, dom, config.disabled)),
+        exclude: normalizeKeepAlivePattern(resolveDirectiveValue(module, dom, config.exclude)),
+        include: normalizeKeepAlivePattern(resolveDirectiveValue(module, dom, config.include)),
+        max: resolveKeepAliveMax(resolveDirectiveValue(module, dom, config.max)),
+        scopeKey: typeof config.scopeKey === 'number' || typeof config.scopeKey === 'string'
+            ? config.scopeKey
+            : dom.key
+    };
+}
+
+function resolveKeepAliveDisabled(value: unknown): boolean {
+    if(value === undefined || value === null){
+        return false;
+    }
+    return resolveKeepAliveEnabled(value);
+}
+
+function normalizeKeepAlivePattern(value: unknown): KeepAliveConfig['include'] | undefined {
+    if(value instanceof RegExp){
+        return value;
+    }
+    if(Array.isArray(value)){
+        const normalized = value
+            .map(item => String(item ?? '').trim())
+            .filter(item => item.length > 0);
+        return normalized.length > 0 ? normalized : undefined;
+    }
+    if(typeof value === 'string'){
+        const normalized = value.trim();
+        return normalized ? normalized : undefined;
+    }
+    return undefined;
+}
+
+function isKeepAliveDirectiveActive(value: boolean | KeepAliveConfig | undefined): boolean {
+    if(value === undefined || value === false){
+        return false;
+    }
+    if(value === true){
+        return true;
+    }
+    return !value.disabled;
+}
+
+function resolveKeepAliveMax(value: unknown): number | undefined {
+    if(typeof value === 'number' && Number.isFinite(value)){
+        return Math.max(0, Math.floor(value));
+    }
+    if(typeof value === 'string' && value.trim()){
+        const parsed = Number(value.trim());
+        if(Number.isFinite(parsed)){
+            return Math.max(0, Math.floor(parsed));
+        }
+    }
+    return undefined;
+}
+
+function resolveTransitionConfig(module: Module, dom: RenderedDom, value: unknown) {
+    if(!value || typeof value !== 'object'){
+        return {
+            name: 'nd'
+        };
+    }
+    const config = value as Record<string, unknown>;
+    return {
+        duration: resolveTransitionDuration(resolveDirectiveValue(module, dom, config.duration)),
+        enterActiveClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.enterActiveClass)),
+        enterDuration: resolveTransitionDuration(resolveDirectiveValue(module, dom, config.enterDuration)),
+        enterFromClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.enterFromClass)),
+        enterToClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.enterToClass)),
+        group: resolveDirectiveValue(module, dom, config.group) === true,
+        leaveActiveClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.leaveActiveClass)),
+        leaveDuration: resolveTransitionDuration(resolveDirectiveValue(module, dom, config.leaveDuration)),
+        leaveFromClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.leaveFromClass)),
+        leaveToClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.leaveToClass)),
+        moveClass: normalizeTransitionClass(resolveDirectiveValue(module, dom, config.moveClass)),
+        moveDuration: resolveTransitionDuration(resolveDirectiveValue(module, dom, config.moveDuration)),
+        name: normalizeTransitionName(resolveDirectiveValue(module, dom, config.name))
+    };
+}
+
+function resolveDirectiveValue(module: Module, dom: RenderedDom, value: unknown): unknown {
+    if(value && typeof value === 'object' && typeof (value as { val?: unknown }).val === 'function'){
+        return (value as { val: (module: Module, model: unknown) => unknown }).val(module, dom.model);
+    }
+    return value;
+}
+
+function normalizeTransitionName(value: unknown): string {
+    if(typeof value === 'string' && value.trim()){
+        return value.trim();
+    }
+    return 'nd';
+}
+
+function normalizeTransitionClass(value: unknown): string | undefined {
+    if(typeof value !== 'string'){
+        return undefined;
+    }
+    const normalized = value.trim();
+    return normalized ? normalized : undefined;
+}
+
+function resolveTransitionDuration(value: unknown): number | undefined {
+    if(typeof value === 'number' && Number.isFinite(value)){
+        return Math.max(0, value);
+    }
+    if(typeof value === 'string' && value.trim()){
+        const parsed = Number(value.trim());
+        if(Number.isFinite(parsed)){
+            return Math.max(0, parsed);
+        }
+    }
+    return undefined;
+}

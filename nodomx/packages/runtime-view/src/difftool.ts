@@ -1,6 +1,26 @@
 import { getSequence } from "@nodomx/runtime-optimize";
 import { ChangedDom, PatchFlags, RenderedDom, StructureFlags } from "@nodomx/shared";
 
+type TeleportAwareRenderedDom = RenderedDom & {
+    transition?: {
+        duration?: number;
+        enterActiveClass?: string;
+        enterDuration?: number;
+        enterFromClass?: string;
+        enterToClass?: string;
+        group?: boolean;
+        leaveActiveClass?: string;
+        leaveDuration?: number;
+        leaveFromClass?: string;
+        leaveToClass?: string;
+        moveClass?: string;
+        moveDuration?: number;
+        name?: string;
+    };
+    teleportDisabled?: boolean;
+    teleportTarget?: unknown;
+};
+
 export class DiffTool {
     public static compare(src: RenderedDom, dst: RenderedDom): ChangedDom[] {
         const changeArr: ChangedDom[] = [];
@@ -222,6 +242,12 @@ export class DiffTool {
         }
 
         function shouldUpdateNode(nextNode: RenderedDom, prevNode: RenderedDom): boolean {
+            if (hasTeleportStateChanged(nextNode, prevNode)) {
+                return true;
+            }
+            if (hasTransitionStateChanged(nextNode, prevNode)) {
+                return true;
+            }
             if (!(nextNode.staticNum || prevNode.staticNum || prevNode.key === 1)) {
                 return false;
             }
@@ -253,6 +279,12 @@ export class DiffTool {
         }
 
         function isChanged(nextNode: RenderedDom, prevNode: RenderedDom): boolean {
+            if (hasTeleportStateChanged(nextNode, prevNode)) {
+                return true;
+            }
+            if (hasTransitionStateChanged(nextNode, prevNode)) {
+                return true;
+            }
             for (const prop of ["props", "assets", "events"] as const) {
                 if ((!nextNode[prop] && prevNode[prop]) || (nextNode[prop] && !prevNode[prop])) {
                     return true;
@@ -290,6 +322,37 @@ export class DiffTool {
             return changed;
         }
     }
+}
+
+function hasTeleportStateChanged(nextNode: RenderedDom, prevNode: RenderedDom): boolean {
+    const nextTeleportNode = nextNode as TeleportAwareRenderedDom;
+    const prevTeleportNode = prevNode as TeleportAwareRenderedDom;
+    return nextTeleportNode.teleportTarget !== prevTeleportNode.teleportTarget
+        || nextTeleportNode.teleportDisabled !== prevTeleportNode.teleportDisabled;
+}
+
+function hasTransitionStateChanged(nextNode: RenderedDom, prevNode: RenderedDom): boolean {
+    const nextTransition = (nextNode as TeleportAwareRenderedDom).transition;
+    const prevTransition = (prevNode as TeleportAwareRenderedDom).transition;
+    if (nextTransition === prevTransition) {
+        return false;
+    }
+    if (!nextTransition || !prevTransition) {
+        return nextTransition !== prevTransition;
+    }
+    return nextTransition.name !== prevTransition.name
+        || nextTransition.duration !== prevTransition.duration
+        || nextTransition.enterDuration !== prevTransition.enterDuration
+        || nextTransition.leaveDuration !== prevTransition.leaveDuration
+        || nextTransition.moveDuration !== prevTransition.moveDuration
+        || nextTransition.enterFromClass !== prevTransition.enterFromClass
+        || nextTransition.enterActiveClass !== prevTransition.enterActiveClass
+        || nextTransition.enterToClass !== prevTransition.enterToClass
+        || nextTransition.leaveFromClass !== prevTransition.leaveFromClass
+        || nextTransition.leaveActiveClass !== prevTransition.leaveActiveClass
+        || nextTransition.leaveToClass !== prevTransition.leaveToClass
+        || nextTransition.moveClass !== prevTransition.moveClass
+        || nextTransition.group !== prevTransition.group;
 }
 
 function canUseBlockDiff(node: RenderedDom): boolean {

@@ -1,0 +1,45 @@
+{
+  "name": "@nodomx/ssr",
+  "version": "0.2.4",
+  "description": "SSR, state resume, and static generation helpers for NodomX applications.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bloom-lmh/nodomx.git",
+    "directory": "ssr"
+  },
+  "homepage": "https://github.com/bloom-lmh/nodomx",
+  "bugs": {
+    "url": "https://github.com/bloom-lmh/nodomx/issues"
+  },
+  "keywords": [
+    "nodomx",
+    "ssr",
+    "ssg",
+    "static-generation",
+    "hydration"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node ./tests/ssr.smoke.mjs",
+    "test": "node ./tests/ssr.smoke.mjs"
+  },
+  "dependencies": {
+    "jsdom": "^29.0.1",
+    "nodomx": "^0.2.4"
+  }
+}
