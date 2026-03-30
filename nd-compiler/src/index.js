@@ -277,6 +277,99 @@ export async function compilePath(inputPath, options = {}) {
     return compileFiles(files, options);
 }
 
+export async function typeCheckNdFile(inputFile, options = {}) {
+    const resolvedInput = path.resolve(inputFile);
+    const source = await fsp.readFile(resolvedInput, "utf8");
+    const descriptor = parseNd(source, {
+        filename: resolvedInput
+    });
+    const typeSurface = extractNdTypeSurface(source, {
+        descriptor,
+        filename: resolvedInput
+    });
+    compileNdWithMap(source, {
+        descriptor,
+        filename: resolvedInput,
+        importSource: options.importSource || "nodomx",
+        sourceMapFilename: resolvedInput,
+        templateTypeCheck: options.templateTypeCheck,
+        typeSurface
+    });
+    const declarationFile = shouldEmitDeclaration(options)
+        ? resolveDeclarationOutFile(resolvedInput, options)
+        : null;
+    const declaration = declarationFile
+        ? generateNdDeclaration(source, {
+            descriptor,
+            filename: resolvedInput,
+            typeSurface
+        })
+        : "";
+    if (declarationFile) {
+        await fsp.mkdir(path.dirname(declarationFile), { recursive: true });
+        await fsp.writeFile(declarationFile, declaration, "utf8");
+    }
+    return {
+        declaration,
+        declarationFile,
+        inputFile: resolvedInput,
+        typeSurface
+    };
+}
+
+export async function typeCheckNdFiles(inputFiles, options = {}) {
+    const results = [];
+    for (const inputFile of inputFiles) {
+        results.push(await typeCheckNdFile(inputFile, options));
+    }
+    return results;
+}
+
+export async function typeCheckNdPath(inputPath, options = {}) {
+    const resolvedPath = path.resolve(inputPath);
+    const stat = await fsp.stat(resolvedPath);
+
+    if (stat.isFile()) {
+        if (!isNdFile(resolvedPath)) {
+            throw new Error(`Expected a .nd file: ${resolvedPath}`);
+        }
+        return [await typeCheckNdFile(resolvedPath, options)];
+    }
+
+    const files = await collectNdFiles(resolvedPath, options);
+    return typeCheckNdFiles(files, options);
+}
+
+export async function runNdTypeCheck(inputPath, options = {}) {
+    const resolvedPath = path.resolve(inputPath);
+    const files = await collectNdFiles(resolvedPath, options);
+    const results = [];
+    const errors = [];
+
+    for (const inputFile of files) {
+        try {
+            results.push(await typeCheckNdFile(inputFile, options));
+        } catch (error) {
+            let source = "";
+            try {
+                source = await fsp.readFile(inputFile, "utf8");
+            } catch {
+                source = "";
+            }
+            errors.push(describeNdError(error, source, {
+                filename: inputFile
+            }));
+        }
+    }
+
+    return {
+        errors,
+        files,
+        ok: errors.length === 0,
+        results
+    };
+}
+
 export async function collectNdFiles(inputPath, options = {}) {
     const resolvedPath = path.resolve(inputPath);
     const stat = await fsp.stat(resolvedPath);
@@ -402,6 +495,131 @@ export async function watchNd(inputPath, options = {}) {
             const result = await compileFile(changedPath, options);
             if (typeof options.onCompiled === "function") {
                 options.onCompiled(result, eventType);
+            }
+        } catch (error) {
+            if (typeof options.onError === "function") {
+                options.onError(error, changedPath, eventType);
+            } else {
+                console.error(error);
+            }
+        }
+    }
+}
+
+export async function watchNdTypes(inputPath, options = {}) {
+    const resolvedPath = path.resolve(inputPath);
+    const stat = await fsp.stat(resolvedPath);
+    const targetFile = stat.isFile() ? resolvedPath : null;
+    const watchRoot = stat.isDirectory() ? resolvedPath : path.dirname(resolvedPath);
+    const watchers = new Map();
+    const timers = new Map();
+    let closed = false;
+
+    const api = {
+        close() {
+            closed = true;
+            for (const timer of timers.values()) {
+                clearTimeout(timer);
+            }
+            timers.clear();
+            for (const watcher of watchers.values()) {
+                watcher.close();
+            }
+            watchers.clear();
+        },
+        ready: null
+    };
+
+    api.ready = (async () => {
+        const initial = await runNdTypeCheck(resolvedPath, options);
+        if (initial.errors.length > 0) {
+            for (const error of initial.errors) {
+                if (typeof options.onError === "function") {
+                    options.onError(error, error.filename, "initial");
+                }
+            }
+        }
+        await registerDirectory(watchRoot);
+        if (typeof options.onReady === "function") {
+            options.onReady(initial);
+        }
+    })();
+
+    return api;
+
+    async function registerDirectory(dir) {
+        const normalizedDir = path.resolve(dir);
+        if (closed || watchers.has(normalizedDir) || shouldIgnoreDirectory(path.basename(normalizedDir), options, normalizedDir !== watchRoot)) {
+            return;
+        }
+
+        const watcher = fs.watch(normalizedDir, (eventType, filename) => {
+            if (closed) {
+                return;
+            }
+            const name = filename ? filename.toString() : "";
+            const changedPath = name ? path.join(normalizedDir, name) : normalizedDir;
+            scheduleHandle(changedPath, eventType);
+        });
+
+        watchers.set(normalizedDir, watcher);
+
+        const entries = await safeReadDirectory(normalizedDir);
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                await registerDirectory(path.join(normalizedDir, entry.name));
+            }
+        }
+    }
+
+    function scheduleHandle(changedPath, eventType) {
+        const normalizedPath = path.resolve(changedPath);
+        if (timers.has(normalizedPath)) {
+            clearTimeout(timers.get(normalizedPath));
+        }
+
+        const timer = setTimeout(async () => {
+            timers.delete(normalizedPath);
+            await handleFsEvent(normalizedPath, eventType);
+        }, 40);
+
+        timers.set(normalizedPath, timer);
+    }
+
+    async function handleFsEvent(changedPath, eventType) {
+        if (targetFile && changedPath !== targetFile) {
+            const maybeDir = await safeStat(changedPath);
+            if (!maybeDir?.isDirectory()) {
+                return;
+            }
+        }
+
+        const statInfo = await safeStat(changedPath);
+        if (statInfo?.isDirectory()) {
+            await registerDirectory(changedPath);
+            return;
+        }
+
+        if (targetFile && changedPath !== targetFile) {
+            return;
+        }
+
+        if (!isNdFile(changedPath)) {
+            return;
+        }
+
+        if (!statInfo) {
+            await removeGeneratedTypeOutput(changedPath, options);
+            if (typeof options.onRemoved === "function") {
+                options.onRemoved(changedPath, eventType);
+            }
+            return;
+        }
+
+        try {
+            const result = await typeCheckNdFile(changedPath, options);
+            if (typeof options.onChecked === "function") {
+                options.onChecked(result, eventType);
             }
         } catch (error) {
             if (typeof options.onError === "function") {
@@ -589,6 +807,7 @@ function validateNdTemplateTypes(typeSurface, source, filename, options = {}) {
 function createEmptyNdTypeSurface(filename) {
     return {
         bindings: [],
+        bindingHints: new Map(),
         componentContracts: new Map(),
         emits: [],
         filename,
@@ -615,6 +834,7 @@ function collectScriptTypeSurface(scriptBlock, surface, filename) {
 
     const sourceFile = createScriptSurfaceSourceFile(scriptBlock, filename);
     const localTypes = collectLocalTypeDeclarations(sourceFile);
+    collectScriptBindingHints(sourceFile, localTypes, surface);
     if (scriptBlock.setup) {
         collectScriptSetupTypeSurfaceFromAst(sourceFile, localTypes, surface);
     } else {
@@ -817,13 +1037,12 @@ function collectTemplateTypeDiagnostics(templateBlock, surface, options = {}) {
         return [];
     }
     const templateNodes = parseTemplateNodes(templateBlock);
-    const skipRanges = collectScopedTemplateSkipRanges(templateNodes);
     const expressions = [
         ...collectScopedSelectorExpressions(templateNodes),
-        ...collectTemplateMustacheExpressions(templateBlock, skipRanges),
-        ...collectTemplateEventExpressions(templateNodes, skipRanges)
+        ...collectTemplateMustacheExpressions(templateBlock, templateNodes),
+        ...collectTemplateEventExpressions(templateNodes)
     ];
-    const allowed = new Set([
+    const globalAllowed = new Set([
         "$event",
         ...surface.bindings.map(item => item.name),
         ...GLOBAL_TEMPLATE_IDENTIFIERS
@@ -832,6 +1051,10 @@ function collectTemplateTypeDiagnostics(templateBlock, surface, options = {}) {
     const seen = new Set();
 
     for (const expression of expressions) {
+        const allowed = new Set([
+            ...globalAllowed,
+            ...collectScopedTemplateIdentifiers(expression.offset, templateNodes, surface)
+        ]);
         for (const identifier of collectExpressionFreeIdentifiers(expression.expression)) {
             if (allowed.has(identifier)) {
                 continue;
@@ -938,7 +1161,7 @@ function extractNdTemplateAttributes(source, baseOffset) {
 
 function collectScopedTemplateSkipRanges(nodes) {
     return nodes
-        .filter(node => isScopedTemplateNode(node))
+        .filter(node => isSkippedScopedTemplateNode(node))
         .map(node => ({
             end: node.closeEnd || node.openEnd,
             start: node.openStart
@@ -964,8 +1187,9 @@ function collectScopedSelectorExpressions(nodes) {
     return expressions;
 }
 
-function collectTemplateMustacheExpressions(templateBlock, skipRanges) {
+function collectTemplateMustacheExpressions(templateBlock, nodes) {
     const expressions = [];
+    const skipRanges = collectScopedTemplateSkipRanges(nodes);
     const moustacheRe = /{{([\s\S]*?)}}/g;
     for (const match of templateBlock.content.matchAll(moustacheRe)) {
         const expression = (match[1] || "").trim();
@@ -982,8 +1206,9 @@ function collectTemplateMustacheExpressions(templateBlock, skipRanges) {
     return expressions;
 }
 
-function collectTemplateEventExpressions(nodes, skipRanges) {
+function collectTemplateEventExpressions(nodes) {
     const expressions = [];
+    const skipRanges = collectScopedTemplateSkipRanges(nodes);
     for (const node of nodes) {
         for (const attr of node.attrs) {
             if (!attr.name.toLowerCase().startsWith("e-") || attr.valueStartOffset == null) {
@@ -1004,6 +1229,31 @@ function collectTemplateEventExpressions(nodes, skipRanges) {
         }
     }
     return expressions;
+}
+
+function collectScopedTemplateIdentifiers(offset, nodes, surface) {
+    const identifiers = new Set();
+    const ancestors = nodes
+        .filter(node => isOffsetWithinNode(offset, node))
+        .sort((left, right) => left.openStart - right.openStart);
+    for (const node of ancestors) {
+        for (const attr of node.attrs || []) {
+            const normalizedName = attr.name.toLowerCase();
+            if (!attr.value) {
+                continue;
+            }
+            if (normalizedName === "x-model") {
+                const hint = resolveBindingHintFromExpression(attr.value, surface?.bindingHints);
+                collectObjectHintIdentifiers(hint, identifiers);
+                continue;
+            }
+            if (normalizedName === "x-repeat" || (node.lowerName === "for" && normalizedName === "cond")) {
+                const hint = resolveBindingHintFromExpression(attr.value, surface?.bindingHints);
+                collectRepeatHintIdentifiers(hint, identifiers);
+            }
+        }
+    }
+    return identifiers;
 }
 
 function collectExpressionFreeIdentifiers(expression) {
@@ -2184,6 +2434,22 @@ function resolveDefineModelName(node) {
     return ts.isStringLiteralLike(firstArg) ? firstArg.text.trim() : "";
 }
 
+function collectScriptBindingHints(sourceFile, localTypes, surface) {
+    if (!surface?.bindingHints) {
+        surface.bindingHints = new Map();
+    }
+    visitSurfaceNodes(sourceFile, (node) => {
+        if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name)) {
+            return;
+        }
+        const hint = inferBindingHint(node.initializer, node.type, localTypes);
+        if (!hint) {
+            return;
+        }
+        mergeSurfaceBindingHint(surface.bindingHints, node.name.text, hint);
+    });
+}
+
 function collectLocalTypeDeclarations(sourceFile) {
     const localTypes = new Map();
     for (const statement of sourceFile.statements || []) {
@@ -2194,6 +2460,233 @@ function collectLocalTypeDeclarations(sourceFile) {
         }
     }
     return localTypes;
+}
+
+function resolveBindingHintFromExpression(expression, bindingHints) {
+    if (!expression || !(bindingHints instanceof Map) || bindingHints.size === 0) {
+        return null;
+    }
+    try {
+        const sourceFile = ts.createSourceFile("binding-hint.ts", `(${expression});`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+        const statement = sourceFile.statements?.[0];
+        if (!statement || !ts.isExpressionStatement(statement)) {
+            return null;
+        }
+        return resolveBindingHintFromExpressionNode(statement.expression, bindingHints);
+    } catch {
+        return null;
+    }
+}
+
+function resolveBindingHintFromExpressionNode(node, bindingHints) {
+    if (!node) {
+        return null;
+    }
+    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isNonNullExpression(node) || ts.isSatisfiesExpression?.(node)) {
+        return resolveBindingHintFromExpressionNode(node.expression, bindingHints);
+    }
+    if (ts.isIdentifier(node)) {
+        return bindingHints.get(node.text) || null;
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+        const targetHint = resolveBindingHintFromExpressionNode(node.expression, bindingHints);
+        return targetHint?.propertyHints?.get(node.name.text) || null;
+    }
+    if (ts.isElementAccessExpression(node)) {
+        const targetHint = resolveBindingHintFromExpressionNode(node.expression, bindingHints);
+        const argument = node.argumentExpression;
+        if (targetHint?.propertyHints && argument && ts.isStringLiteralLike(argument)) {
+            return targetHint.propertyHints.get(argument.text) || null;
+        }
+    }
+    return null;
+}
+
+function collectObjectHintIdentifiers(hint, identifiers) {
+    if (!hint) {
+        return;
+    }
+    for (const key of hint.objectKeys || []) {
+        identifiers.add(key);
+    }
+}
+
+function collectRepeatHintIdentifiers(hint, identifiers) {
+    const elementHint = hint?.arrayElementHint;
+    if (!elementHint) {
+        return;
+    }
+    collectObjectHintIdentifiers(elementHint, identifiers);
+}
+
+function mergeSurfaceBindingHint(bindingHints, name, hint) {
+    const existing = bindingHints.get(name);
+    bindingHints.set(name, mergeBindingHints(existing, hint));
+}
+
+function createBindingHint() {
+    return {
+        arrayElementHint: null,
+        objectKeys: new Set(),
+        propertyHints: new Map()
+    };
+}
+
+function hasBindingHint(hint) {
+    return !!(
+        hint
+        && (hint.objectKeys?.size > 0
+            || hint.propertyHints?.size > 0
+            || hasBindingHint(hint.arrayElementHint))
+    );
+}
+
+function mergeBindingHints(targetHint, sourceHint) {
+    if (!targetHint && !sourceHint) {
+        return null;
+    }
+    const target = targetHint || createBindingHint();
+    if (!sourceHint) {
+        return target;
+    }
+    for (const key of sourceHint.objectKeys || []) {
+        target.objectKeys.add(key);
+    }
+    for (const [key, nestedHint] of sourceHint.propertyHints || []) {
+        target.propertyHints.set(key, mergeBindingHints(target.propertyHints.get(key) || null, nestedHint));
+    }
+    if (sourceHint.arrayElementHint) {
+        target.arrayElementHint = mergeBindingHints(target.arrayElementHint, sourceHint.arrayElementHint);
+    }
+    return target;
+}
+
+function inferBindingHint(initializer, typeNode, localTypes) {
+    let hint = null;
+    if (typeNode) {
+        hint = mergeBindingHints(hint, inferBindingHintFromTypeNode(typeNode, localTypes));
+    }
+    if (initializer) {
+        hint = mergeBindingHints(hint, inferBindingHintFromInitializer(initializer, localTypes));
+    }
+    return hasBindingHint(hint) ? hint : null;
+}
+
+function inferBindingHintFromInitializer(initializer, localTypes) {
+    if (!initializer) {
+        return null;
+    }
+    if (ts.isParenthesizedExpression(initializer) || ts.isAsExpression(initializer) || ts.isTypeAssertionExpression(initializer) || ts.isNonNullExpression(initializer) || ts.isSatisfiesExpression?.(initializer)) {
+        return inferBindingHintFromInitializer(initializer.expression, localTypes);
+    }
+    if (ts.isObjectLiteralExpression(initializer)) {
+        const hint = createBindingHint();
+        for (const property of initializer.properties) {
+            const name = getObjectMemberName(property);
+            if (!name) {
+                continue;
+            }
+            hint.objectKeys.add(name);
+            const nestedHint = inferBindingHintFromRuntimeMember(property, localTypes);
+            if (nestedHint) {
+                hint.propertyHints.set(name, nestedHint);
+            }
+        }
+        return hasBindingHint(hint) ? hint : null;
+    }
+    if (ts.isArrayLiteralExpression(initializer)) {
+        const hint = createBindingHint();
+        for (const element of initializer.elements) {
+            hint.arrayElementHint = mergeBindingHints(
+                hint.arrayElementHint,
+                inferBindingHintFromInitializer(element, localTypes)
+            );
+        }
+        return hasBindingHint(hint) ? hint : null;
+    }
+    if (ts.isCallExpression(initializer) && ts.isIdentifier(initializer.expression)) {
+        if (["reactive", "useReactive", "ref", "useRef", "useState"].includes(initializer.expression.text)) {
+            return inferBindingHintFromInitializer(initializer.arguments?.[0], localTypes);
+        }
+    }
+    return null;
+}
+
+function inferBindingHintFromRuntimeMember(member, localTypes) {
+    if (ts.isPropertyAssignment(member)) {
+        return inferBindingHint(member.initializer, null, localTypes);
+    }
+    if (ts.isShorthandPropertyAssignment(member)) {
+        return null;
+    }
+    if (ts.isMethodDeclaration(member) || ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
+        return null;
+    }
+    return null;
+}
+
+function inferBindingHintFromTypeNode(typeNode, localTypes, seen = new Set()) {
+    const resolved = resolveTypeNode(typeNode, localTypes, seen);
+    if (!resolved) {
+        return null;
+    }
+    if (ts.isParenthesizedTypeNode(resolved) || ts.isTypeOperatorNode(resolved) || ts.isRestTypeNode?.(resolved) || ts.isOptionalTypeNode?.(resolved)) {
+        return inferBindingHintFromTypeNode(resolved.type, localTypes, seen);
+    }
+    if (ts.isUnionTypeNode(resolved) || ts.isIntersectionTypeNode(resolved)) {
+        let hint = null;
+        for (const child of resolved.types) {
+            hint = mergeBindingHints(hint, inferBindingHintFromTypeNode(child, localTypes, seen));
+        }
+        return hasBindingHint(hint) ? hint : null;
+    }
+    if (ts.isArrayTypeNode(resolved)) {
+        const hint = createBindingHint();
+        hint.arrayElementHint = inferBindingHintFromTypeNode(resolved.elementType, localTypes, seen);
+        return hasBindingHint(hint) ? hint : null;
+    }
+    if (ts.isTupleTypeNode(resolved)) {
+        const hint = createBindingHint();
+        for (const element of resolved.elements) {
+            const nextType = ts.isNamedTupleMember(element) ? element.type : element;
+            hint.arrayElementHint = mergeBindingHints(hint.arrayElementHint, inferBindingHintFromTypeNode(nextType, localTypes, seen));
+        }
+        return hasBindingHint(hint) ? hint : null;
+    }
+    if (ts.isTypeReferenceNode(resolved) && ts.isIdentifier(resolved.typeName)) {
+        if (["Array", "ReadonlyArray"].includes(resolved.typeName.text)) {
+            const hint = createBindingHint();
+            hint.arrayElementHint = inferBindingHintFromTypeNode(resolved.typeArguments?.[0], localTypes, seen);
+            return hasBindingHint(hint) ? hint : null;
+        }
+    }
+    if (ts.isTypeLiteralNode(resolved) || ts.isInterfaceDeclaration(resolved)) {
+        const members = ts.isTypeLiteralNode(resolved) ? resolved.members : resolved.members;
+        const hint = createBindingHint();
+        for (const member of members) {
+            const name = getTypeElementName(member);
+            if (!name) {
+                continue;
+            }
+            hint.objectKeys.add(name);
+            const nestedHint = inferBindingHintFromTypeElement(member, localTypes, seen);
+            if (nestedHint) {
+                hint.propertyHints.set(name, nestedHint);
+            }
+        }
+        return hasBindingHint(hint) ? hint : null;
+    }
+    return null;
+}
+
+function inferBindingHintFromTypeElement(member, localTypes, seen) {
+    if (!member) {
+        return null;
+    }
+    if (ts.isPropertySignature(member) || ts.isPropertyDeclaration(member)) {
+        return inferBindingHintFromTypeNode(member.type, localTypes, seen);
+    }
+    return null;
 }
 
 function resolveLocalTypeNode(localTypes, name) {
@@ -2346,8 +2839,23 @@ function isScopedTemplateNode(node) {
     });
 }
 
+function isSkippedScopedTemplateNode(node) {
+    if (!isScopedTemplateNode(node)) {
+        return false;
+    }
+    if (node.lowerName === "recur") {
+        return true;
+    }
+    return node.attrs.some(attr => attr.name.toLowerCase() === "x-recur");
+}
+
 function isOffsetWithinRanges(offset, ranges) {
     return ranges.some(range => offset >= range.start && offset < range.end);
+}
+
+function isOffsetWithinNode(offset, node) {
+    const end = node.closeEnd || node.openEnd;
+    return offset >= node.openStart && offset < end;
 }
 
 function normalizeTemplateEventExpression(expression) {
@@ -2718,6 +3226,14 @@ function shouldEmitDeclaration(options = {}) {
 async function removeCompiledOutput(inputFile, options) {
     const outFile = resolveOutFile(inputFile, options);
     await fsp.rm(outFile, { force: true });
+    await removeGeneratedTypeOutput(inputFile, options);
+}
+
+async function removeGeneratedTypeOutput(inputFile, options) {
+    if (!shouldEmitDeclaration(options)) {
+        return;
+    }
+    await fsp.rm(resolveDeclarationOutFile(inputFile, options), { force: true });
 }
 
 async function walkDirectory(dir, onFile, options) {

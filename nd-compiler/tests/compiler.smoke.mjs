@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -227,6 +228,62 @@ const todos = [
 </script>
 `;
 
+const repeatScopeUnknownSource = `
+<template>
+  <ul>
+    <li x-repeat={{todos}} key={{id}}>
+      {{title}}
+      {{missingField}}
+    </li>
+  </ul>
+</template>
+
+<script setup lang="ts">
+type Todo = {
+  id: number;
+  title: string;
+};
+
+const todos: Todo[] = [
+  { id: 1, title: "learn" }
+];
+</script>
+`;
+
+const xModelScopeSource = `
+<template>
+  <section x-model={{profile}}>
+    <h2>{{name}}</h2>
+    <button e-click="submit(name)">save</button>
+  </section>
+</template>
+
+<script setup>
+const profile = {
+  name: "Ada",
+  visits: 1
+};
+
+const submit = () => {};
+</script>
+`;
+
+const xModelScopeUnknownSource = `
+<template>
+  <section x-model={{profile}}>
+    <h2>{{name}}</h2>
+    <p>{{missingField}}</p>
+  </section>
+</template>
+
+<script setup>
+const profile = {
+  name: "Ada",
+  visits: 1
+};
+</script>
+`;
+
 const descriptor = parseNd(source, { filename: "Counter.nd" });
 assert.equal(descriptor.styles.length, 1);
 assert.ok(descriptor.styles[0].scoped);
@@ -344,6 +401,24 @@ assert.doesNotThrow(() => compileNd(repeatScopeSource, {
     filename: "RepeatScope.nd",
     importSource: "nodomx"
 }));
+assert.throws(() => compileNd(repeatScopeUnknownSource, {
+    filename: "RepeatScopeUnknown.nd",
+    importSource: "nodomx"
+}), (error) => {
+    assert.match(String(error?.message || error), /missingField/);
+    return true;
+});
+assert.doesNotThrow(() => compileNd(xModelScopeSource, {
+    filename: "ModelScope.nd",
+    importSource: "nodomx"
+}));
+assert.throws(() => compileNd(xModelScopeUnknownSource, {
+    filename: "ModelScopeUnknown.nd",
+    importSource: "nodomx"
+}), (error) => {
+    assert.match(String(error?.message || error), /missingField/);
+    return true;
+});
 
 assert.throws(() => parseNd("<script setup>\nconst count = 1;\n</script>", {
     filename: "Broken.nd"
@@ -494,6 +569,32 @@ await waitFor(async () => {
 
 watcher.close();
 
+const typeCheckGood = spawnSync(process.execPath, [
+    path.resolve("bin/nd-tsc.mjs"),
+    tmpDir,
+    "--declaration"
+], {
+    cwd: path.resolve("."),
+    encoding: "utf8"
+});
+assert.equal(typeCheckGood.status, 0, typeCheckGood.stderr);
+assert.match(typeCheckGood.stdout, /Checked 2 \.nd file\(s\) successfully\./);
+assert.ok(await fileExists(defaultDeclarationOutFile(inputFile)));
+
+const badTypeCheckDir = await fs.mkdtemp(path.join(os.tmpdir(), "nd-compiler-typecheck-"));
+const badTypeCheckFile = path.join(badTypeCheckDir, "BrokenContract.nd");
+await fs.writeFile(badTypeCheckFile, repeatScopeUnknownSource, "utf8");
+const typeCheckBad = spawnSync(process.execPath, [
+    path.resolve("bin/nd-tsc.mjs"),
+    badTypeCheckDir
+], {
+    cwd: path.resolve("."),
+    encoding: "utf8"
+});
+assert.equal(typeCheckBad.status, 1);
+assert.match(typeCheckBad.stdout, /with 1 error\(s\)/);
+assert.match(typeCheckBad.stderr, /missingField/);
+
 console.log("nd compiler smoke test passed");
 
 async function waitFor(predicate, timeoutMs = 4000, intervalMs = 80) {
@@ -505,4 +606,13 @@ async function waitFor(predicate, timeoutMs = 4000, intervalMs = 80) {
         await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
     throw new Error("Timed out waiting for watch output.");
+}
+
+async function fileExists(filePath) {
+    try {
+        await fs.stat(filePath);
+        return true;
+    } catch {
+        return false;
+    }
 }

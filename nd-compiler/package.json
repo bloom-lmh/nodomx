@@ -8,7 +8,8 @@
     ".": "./src/index.js"
   },
   "bin": {
-    "ndc": "./bin/ndc.mjs"
+    "ndc": "./bin/ndc.mjs",
+    "nd-tsc": "./bin/nd-tsc.mjs"
   },
   "files": [
     "bin",

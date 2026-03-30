@@ -7,10 +7,15 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { defineProps } from "nodomx";
 
-const props = defineProps();
+const props = defineProps<{
+  title: string;
+  headline: string;
+  count: number;
+  doubleCount: number;
+}>();
 </script>
 
 <style scoped>

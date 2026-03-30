@@ -61,6 +61,8 @@
     "watch": "npm run watch -w nodomx",
     "watch:nd": "node ./nd-compiler/bin/ndc.mjs ./nodomx/examples --watch",
     "compile:nd": "node ./nd-compiler/bin/ndc.mjs",
+    "typecheck:nd": "node ./nd-compiler/bin/nd-tsc.mjs .",
+    "typecheck:nd:watch": "node ./nd-compiler/bin/nd-tsc.mjs . --watch",
     "docs:dev": "npm run dev -w nodomx-docs",
     "docs:preview": "npm run preview -w nodomx-docs",
     "test": "npm run test:shared && npm run test:reactivity && npm run test:runtime-registry && npm run test:runtime-template && npm run test:runtime-optimize && npm run test:runtime-scheduler && npm run test:runtime-view && npm run test:runtime-module && npm run test:runtime-router && npm run test:runtime-app && npm run test:runtime-core && npm run test:core && npm run test:store && npm run test -w nodomx",

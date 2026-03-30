@@ -2,6 +2,8 @@
 
 This roadmap tracks the highest-leverage work needed to move NodomX closer to a modern Vue-class developer experience while preserving NodomX's own runtime and template model.
 
+For the next milestone focused specifically on type-system depth and tooling maturity, see [ROADMAP-TYPE-TOOLING.md](/E:/dev_projects/nodomx/ROADMAP-TYPE-TOOLING.md).
+
 ## P0: Core developer experience
 
 Goal: make NodomX pleasant and credible for day-to-day application development.
