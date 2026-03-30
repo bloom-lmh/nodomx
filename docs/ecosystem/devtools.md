@@ -1,21 +1,18 @@
-# `@nodomx/devtools`
+# Devtools
 
-`@nodomx/devtools` 是 NodomX 的官方调试面板包。
+`@nodomx/devtools` 是 NodomX 的官方运行时调试面板。
 
-## 当前能力
+## 能力概览
 
 - 自动发现并跟踪已挂载的 NodomX app
-- 查看模块树并选中当前模块
-- 查看 `setup / model / props / route / exposed`
-- 查看官方 store 当前状态
-- 记录 `mount / render / hook / manual refresh` 时间线
+- 模块树浏览、搜索、选中与高亮
+- 查看 `setup / state / props / route / exposed`
+- 查看并直接 patch 官方 store 状态
+- 时间线记录 `mount / render / hook / manual refresh`
 - 跟踪 `Transition / KeepAlive / Suspense` 关键生命周期
-- 高亮当前模块对应的真实 DOM
-- 直接 patch 当前模块的 `setup / state`
-- 直接 patch 官方 store 状态
-- 导出当前 app 快照
-- 将当前 app / module 快照输出到浏览器控制台
-- `Ctrl + Shift + D` 快捷开关面板
+- 事件详情面板，可查看 timeline payload
+- 页面元素拾取，点击真实 DOM 反查所属模块
+- 快照导出与控制台 inspect
 
 ## 安装
 
@@ -35,7 +32,9 @@ app.use(createDevtools());
 app.mount("#app");
 ```
 
-## 面板区域
+默认会打开内嵌调试面板，也可以通过 `Ctrl + Shift + D` 切换。
+
+## 面板说明
 
 ### App tabs
 
@@ -43,7 +42,7 @@ app.mount("#app");
 
 ### Module tree
 
-浏览模块树，支持搜索模块名、`hotId` 和模块 id。
+浏览模块树，支持按模块名、`hotId`、模块 id 搜索。
 
 ### Timeline
 
@@ -55,23 +54,26 @@ app.mount("#app");
 - `KeepAlive activated / deactivated`
 - `Suspense pending / fallback / resolve / error / retry`
 
+### Events
+
+点击任意时间线事件后，可以在 `Events` 面板里查看：
+
+- summary
+- category
+- reason
+- module / hot id
+- hook 名称
+- 原始 payload
+
 ### Inspector
 
-查看当前选中模块或 app 的结构化快照：
-
-- `props`
-- `setup`
-- `model/state`
-- `route`
-- `exposed`
-- `store`
-
-同时支持直接在面板里：
+查看当前选中模块或 app 的结构化快照，并可直接修改：
 
 - `Apply setup`
 - `Apply state`
 - `Apply store state`
 - `Highlight`
+- `Pick element`
 
 ## 编程接口
 
@@ -84,23 +86,7 @@ import {
 } from "@nodomx/devtools";
 ```
 
-### `createDevtools(options?)`
-
-创建一个可直接 `app.use(...)` 的插件。
-
-### `installDevtoolsHook(options?)`
-
-安装并返回全局调试 hook。
-
-### `getDevtoolsHook()`
-
-获取当前已安装 hook。
-
-### `notifyDevtoolsUpdate(app, reason, details?)`
-
-手动推送一次调试更新。
-
-## 常用 hook API
+常用 hook API：
 
 ```js
 const hook = getDevtoolsHook();
@@ -109,6 +95,8 @@ hook.getSnapshot();
 hook.getTimeline();
 hook.exportSnapshot();
 hook.inspectSelection();
+hook.highlightSelection();
+hook.pickElement(targetNode);
 hook.openOverlay();
 hook.closeOverlay();
 ```
@@ -117,5 +105,5 @@ hook.closeOverlay();
 
 - 排查复杂组件组合下的状态变化
 - 观察 `KeepAlive / Suspense / Transition` 的时序
-- 检查模块树结构是否符合预期
-- 快速导出运行时快照给团队成员复现问题
+- 直接在运行时修改模块或 store 状态复现问题
+- 从页面真实 DOM 快速定位回模块树

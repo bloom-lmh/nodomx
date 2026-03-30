@@ -20,10 +20,17 @@ export function createHook(globalTarget, options = {}) {
     const timelineLimit = Math.max(40, Number(options.timelineLimit) || DEFAULT_TIMELINE_LIMIT);
     let highlightElement = null;
     let panel = null;
+    let pickerCleanup = null;
     let selectedAppId = null;
+    const pickerState = {
+        active: false,
+        hoveredAppId: null,
+        hoveredModuleId: null
+    };
 
     const hook = {
         __selectedAppId: null,
+        __pickerState: pickerState,
         apps,
         version: 3,
         registerApp(app) {
@@ -135,6 +142,100 @@ export function createHook(globalTarget, options = {}) {
         clearHighlight() {
             clearHighlight();
         },
+        pickElement(targetNode, appId) {
+            const match = resolveModuleMatchForNode(targetNode, appId);
+            if (!match) {
+                return null;
+            }
+            this.selectApp(match.appId);
+            this.selectModule(match.appId, match.module.id);
+            if (pickerState.active) {
+                this.stopElementPicker();
+            }
+            return {
+                appId: match.appId,
+                moduleId: match.module.id,
+                targetTag: match.element?.tagName?.toLowerCase?.() || null
+            };
+        },
+        startElementPicker(appId) {
+            if (!globalTarget?.document) {
+                return false;
+            }
+            if (pickerCleanup) {
+                pickerCleanup();
+                pickerCleanup = null;
+            }
+            const entry = resolveEntry(appId);
+            if (!entry) {
+                throw new Error("No NodomX app available to inspect.");
+            }
+            selectedAppId = entry.id;
+            hook.__selectedAppId = entry.id;
+            pickerState.active = true;
+            pickerState.hoveredAppId = null;
+            pickerState.hoveredModuleId = null;
+            const onMouseMove = event => {
+                const targetNode = event.target;
+                if (isIgnoredPickerTarget(targetNode)) {
+                    return;
+                }
+                const match = resolveModuleMatchForNode(targetNode, entry.id);
+                if (!match) {
+                    pickerState.hoveredAppId = null;
+                    pickerState.hoveredModuleId = null;
+                    clearHighlight();
+                    renderOverlay();
+                    return;
+                }
+                pickerState.hoveredAppId = match.appId;
+                pickerState.hoveredModuleId = match.module.id;
+                const overlay = ensureHighlightElement();
+                positionHighlightElement(overlay, match.element);
+                renderOverlay();
+            };
+            const onClick = event => {
+                if (isIgnoredPickerTarget(event.target)) {
+                    return;
+                }
+                const result = hook.pickElement(event.target, entry.id);
+                if (!result) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+            };
+            const onKeyDown = event => {
+                if (event.key !== "Escape") {
+                    return;
+                }
+                event.preventDefault();
+                hook.stopElementPicker();
+            };
+            globalTarget.document.addEventListener("mousemove", onMouseMove, true);
+            globalTarget.document.addEventListener("click", onClick, true);
+            globalTarget.document.addEventListener("keydown", onKeyDown, true);
+            globalTarget.document.body?.setAttribute("data-nodomx-devtools-picking", "true");
+            pickerCleanup = () => {
+                globalTarget.document.removeEventListener("mousemove", onMouseMove, true);
+                globalTarget.document.removeEventListener("click", onClick, true);
+                globalTarget.document.removeEventListener("keydown", onKeyDown, true);
+                globalTarget.document.body?.removeAttribute("data-nodomx-devtools-picking");
+            };
+            renderOverlay();
+            return true;
+        },
+        stopElementPicker() {
+            if (pickerCleanup) {
+                pickerCleanup();
+                pickerCleanup = null;
+            }
+            pickerState.active = false;
+            pickerState.hoveredAppId = null;
+            pickerState.hoveredModuleId = null;
+            clearHighlight();
+            renderOverlay();
+        },
         applyModulePatch(appId, moduleId, target, payload) {
             const entry = resolveEntry(appId);
             if (!entry) {
@@ -224,6 +325,7 @@ export function createHook(globalTarget, options = {}) {
             if (!panel) {
                 return;
             }
+            hook.stopElementPicker();
             panel.root.remove();
             panel = null;
             clearHighlight();
@@ -343,6 +445,27 @@ export function createHook(globalTarget, options = {}) {
             highlightElement = null;
         }
     }
+
+    function isIgnoredPickerTarget(targetNode) {
+        return targetNode instanceof Element
+            && !!targetNode.closest(`[data-nodomx-devtools], [${HIGHLIGHT_ATTR}]`);
+    }
+
+    function resolveModuleMatchForNode(targetNode, appId) {
+        const entry = resolveEntry(appId);
+        if (!entry?.app?.instance || !(targetNode instanceof Node)) {
+            return null;
+        }
+        const match = findModuleInstanceForNode(entry.app.instance, targetNode);
+        if (!match) {
+            return null;
+        }
+        return {
+            appId: entry.id,
+            element: resolveModuleElement(match),
+            module: match
+        };
+    }
 }
 
 function findModuleInstance(rootModule, moduleId) {
@@ -372,6 +495,23 @@ function resolveModuleElement(moduleInstance) {
         return null;
     }
     return findFirstElementNode(moduleInstance.domManager.renderedTree);
+}
+
+function findModuleInstanceForNode(rootModule, targetNode) {
+    if (!rootModule || !(targetNode instanceof Node)) {
+        return null;
+    }
+    const rootElement = resolveModuleElement(rootModule);
+    if (!(rootElement instanceof Element) || !rootElement.contains(targetNode)) {
+        return null;
+    }
+    for (const child of rootModule.children || []) {
+        const found = findModuleInstanceForNode(child, targetNode);
+        if (found) {
+            return found;
+        }
+    }
+    return rootModule;
 }
 
 function findFirstElementNode(renderedDom) {

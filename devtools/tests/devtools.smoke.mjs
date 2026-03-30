@@ -79,6 +79,18 @@ assert.ok(document.querySelector("[data-nodomx-devtools-tree]"), "expected modul
 assert.ok(document.querySelector("[data-nodomx-devtools-timeline]"), "expected timeline section");
 assert.ok(document.querySelector("[data-nodomx-devtools-inspector]"), "expected inspector section");
 
+const pickButton = document.querySelector('[data-action="pick"]');
+assert.ok(pickButton, "expected element picker button");
+pickButton.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+assert.equal(hook.__pickerState.active, true, "expected element picker to start");
+hook.highlightSelection();
+const appButton = findNodeByTag(instance.domManager.renderedTree, "button") || findFirstElementNode(instance.domManager.renderedTree);
+assert.ok(appButton, "expected rendered module element for picker test");
+const picked = hook.pickElement(appButton);
+assert.ok(picked, "expected picker to resolve a module");
+assert.equal(hook.__pickerState.active, false, "expected element picker to stop after selecting");
+assert.equal(hook.getSnapshot()[0].selectedModuleId, instance.id, "expected picker to select current module");
+
 const exported = hook.exportSnapshot();
 assert.ok(exported.includes("\"CounterApp\""), "expected exported snapshot to contain app name");
 assert.equal(window.__NODOMX_DEVTOOLS_LAST_EXPORT__, exported, "expected export payload cached on window");
@@ -102,6 +114,14 @@ hook.applyStorePatch(undefined, "counter", {
 assert.equal(counterStore.total, 18, "expected store patch to update actual store");
 assert.equal(hook.getSnapshot()[0].snapshot.store[0].state.total, 18, "expected store patch to update snapshot");
 
+const manualRefreshEvent = hook.getTimeline().find(item => item.reason === "manual-refresh");
+assert.ok(manualRefreshEvent, "expected manual refresh event in timeline");
+const manualRefreshButton = document.querySelector(`[data-event-id="${manualRefreshEvent.id}"]`);
+assert.ok(manualRefreshButton, "expected clickable timeline item");
+manualRefreshButton.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+assert.match(document.querySelector("[data-nodomx-devtools-inspector]").textContent, /Event details/i, "expected event inspector view");
+assert.match(document.querySelector("[data-nodomx-devtools-inspector]").textContent, /manual-refresh/i, "expected selected event reason in inspector");
+
 hook.clearTimeline();
 assert.ok(hook.getTimeline().some(item => item.reason === "timeline-cleared"), "expected timeline cleared event");
 
@@ -122,6 +142,7 @@ function installGlobals(windowRef) {
     globalThis.Comment = windowRef.Comment;
     globalThis.DocumentFragment = windowRef.DocumentFragment;
     globalThis.Event = windowRef.Event;
+    globalThis.MouseEvent = windowRef.MouseEvent;
     globalThis.CustomEvent = windowRef.CustomEvent;
     globalThis.AbortController = windowRef.AbortController;
     globalThis.AbortSignal = windowRef.AbortSignal;
@@ -130,4 +151,36 @@ function installGlobals(windowRef) {
     globalThis.getComputedStyle = windowRef.getComputedStyle.bind(windowRef);
     globalThis.requestAnimationFrame = callback => setTimeout(() => callback(Date.now()), 0);
     globalThis.cancelAnimationFrame = id => clearTimeout(id);
+}
+
+function findNodeByTag(renderedDom, tagName) {
+    if (!renderedDom) {
+        return null;
+    }
+    if (renderedDom.node?.tagName?.toLowerCase?.() === tagName) {
+        return renderedDom.node;
+    }
+    for (const child of renderedDom.children || []) {
+        const found = findNodeByTag(child, tagName);
+        if (found) {
+            return found;
+        }
+    }
+    return null;
+}
+
+function findFirstElementNode(renderedDom) {
+    if (!renderedDom) {
+        return null;
+    }
+    if (renderedDom.node instanceof Element) {
+        return renderedDom.node;
+    }
+    for (const child of renderedDom.children || []) {
+        const found = findFirstElementNode(child);
+        if (found) {
+            return found;
+        }
+    }
+    return null;
 }

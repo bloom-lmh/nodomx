@@ -36,7 +36,7 @@ export function createOverlay(documentRef, hook, getSelectedAppId) {
         render(entries) {
             const selectedId = getSelectedAppId();
             const current = entries.find(entry => entry.id === selectedId) || entries[0];
-            root.innerHTML = renderPanel(entries, current, state);
+            root.innerHTML = renderPanel(entries, current, state, hook.__pickerState);
             bindOverlayEvents(root, hook, state, entries);
         }
     };
@@ -79,6 +79,22 @@ function bindOverlayEvents(root, hook, state, entries) {
         const result = hook.highlightSelection(current.id, current.selectedModuleId);
         setNotice(result ? "success" : "error", result ? `Highlighted <${result.targetTag}> for module #${result.moduleId}.` : "Unable to resolve a DOM element for the current module.");
     });
+    root.querySelector('[data-action="pick"]')?.addEventListener("click", () => {
+        if (!current) {
+            return;
+        }
+        try {
+            if (hook.__pickerState?.active) {
+                hook.stopElementPicker();
+                setNotice("success", "Element picker stopped.");
+                return;
+            }
+            hook.startElementPicker(current.id);
+            setNotice("success", "Element picker started. Hover the page and click a NodomX element to inspect it.");
+        } catch (error) {
+            setNotice("error", error.message || "Unable to start element picker.");
+        }
+    });
     root.querySelector('[data-action="export"]')?.addEventListener("click", () => {
         if (!current) {
             return;
@@ -113,6 +129,18 @@ function bindOverlayEvents(root, hook, state, entries) {
             if (current) {
                 hook.selectModule(current.id, Number(button.getAttribute("data-module-id")));
             }
+        });
+    }
+    for (const button of root.querySelectorAll("[data-event-id]")) {
+        button.addEventListener("click", () => {
+            state.selectedEventId = button.getAttribute("data-event-id");
+            state.activeTab = "events";
+            const moduleId = Number(button.getAttribute("data-event-module-id"));
+            if (current && Number.isFinite(moduleId) && moduleId > 0) {
+                hook.selectModule(current.id, moduleId);
+                return;
+            }
+            rerender();
         });
     }
     root.querySelector("[data-devtools-search]")?.addEventListener("input", event => {
@@ -164,7 +192,7 @@ function bindOverlayEvents(root, hook, state, entries) {
         const nextEntries = Array.from(hook.apps.values());
         const selectedId = getSelectedAppId(nextEntries, hook);
         const selected = nextEntries.find(entry => entry.id === selectedId) || nextEntries[0];
-        root.innerHTML = renderPanel(nextEntries, selected, state);
+        root.innerHTML = renderPanel(nextEntries, selected, state, hook.__pickerState);
         bindOverlayEvents(root, hook, state, nextEntries);
     }
 

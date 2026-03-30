@@ -1,27 +1,27 @@
 # `@nodomx/devtools`
 
-`@nodomx/devtools` 为 NodomX 提供运行时调试桥和浏览器内调试面板。
+`@nodomx/devtools` is the official runtime debugging panel for NodomX.
 
-当前版本支持：
+## Features
 
-- 自动发现并跟踪已挂载的 NodomX app
-- 模块树浏览与模块级检查
-- `setup / model / props / route / exposed` 快照查看
-- 官方 store 状态查看
-- 生命周期与 `Transition / KeepAlive / Suspense` 时间线
-- 高亮当前模块对应的真实 DOM
-- 直接从面板 patch 模块 `setup / state`
-- 直接从面板 patch 官方 store 状态
-- 快照导出与控制台检查
-- `Ctrl + Shift + D` 快捷开关面板
+- Discover mounted NodomX apps automatically
+- Browse the module tree and inspect the selected module
+- Inspect `setup`, `state`, `props`, `route`, `exposed`, and official store state
+- Record runtime timeline events including `Transition`, `KeepAlive`, and `Suspense`
+- Highlight the selected module's real DOM
+- Pick a live DOM element and jump back to the owning module
+- Patch module `setup` / `state` directly from the panel
+- Patch official store state directly from the panel
+- Export snapshots and inspect data in the browser console
+- Open or close the panel with `Ctrl + Shift + D`
 
-## 安装
+## Install
 
 ```bash
 npm install -D @nodomx/devtools
 ```
 
-## 使用
+## Usage
 
 ```js
 import { createDevtools } from "@nodomx/devtools";
@@ -33,36 +33,40 @@ app.use(createDevtools());
 app.mount("#app");
 ```
 
-## 面板能力
+## Panel areas
 
-- App tabs: 在多个已挂载 app 之间切换
-- Module tree: 浏览模块树并选中当前模块
-- Timeline: 查看 mount、render、hook、manual refresh 等事件
-- Inspector: 查看当前模块或 app 的结构化快照
-- Highlight: 高亮当前选中模块的真实 DOM
-- Apply setup/state: 直接修改当前模块状态
-- Apply store state: 直接修改官方 store 状态
-- Export: 导出当前 app 快照 JSON
-- Inspect: 将当前 app / module 快照输出到浏览器控制台
+- `App tabs`: switch between mounted apps
+- `Module tree`: browse modules, search by name or hot id, and change selection
+- `Timeline`: review lifecycle, render, and suspense-related events
+- `Events`: inspect the selected timeline event payload in detail
+- `Inspector`: inspect and patch the selected module or store
+- `Pick element`: hover the page and click a real DOM element to focus its owning module
 
-## 编程接口
+## Runtime API
 
 ```js
 import {
+  createDevtools,
   getDevtoolsHook,
   installDevtoolsHook,
   notifyDevtoolsUpdate
 } from "@nodomx/devtools";
 ```
 
-- `installDevtoolsHook(options)`：安装并返回全局 hook
-- `getDevtoolsHook()`：获取当前 hook
-- `notifyDevtoolsUpdate(app, reason, details)`：手动推送一次调试更新
-- `hook.getSnapshot()`：获取所有 app 的当前快照
-- `hook.getTimeline(appId?)`：获取当前或指定 app 的时间线
-- `hook.exportSnapshot(appId?)`：导出快照 JSON
-- `hook.inspectSelection(appId?, moduleId?)`：把当前选中的 app/module 输出到控制台
+Common hook methods:
 
-## 说明
+- `installDevtoolsHook(options?)`
+- `getDevtoolsHook()`
+- `notifyDevtoolsUpdate(app, reason, details?)`
+- `hook.getSnapshot(appId?)`
+- `hook.getTimeline(appId?)`
+- `hook.exportSnapshot(appId?)`
+- `hook.inspectSelection(appId?, moduleId?)`
+- `hook.highlightSelection(appId?, moduleId?)`
+- `hook.pickElement(target, appId?)`
+- `hook.applyModulePatch(appId?, moduleId?, "setup" | "state", payload)`
+- `hook.applyStorePatch(appId?, storeId, payload)`
 
-这是一版运行时内嵌调试面板，不依赖浏览器扩展就能用。后续如果继续演进，可以在此基础上扩展为更完整的独立 DevTools。
+## Notes
+
+This is an embedded runtime panel, so it works without a separate browser extension. It can later evolve into a dedicated standalone DevTools experience.

@@ -7,16 +7,21 @@ import {
 } from "./shared.js";
 import { findModuleById } from "./snapshot.js";
 
-export function renderPanel(entries, current, state) {
+export function renderPanel(entries, current, state, pickerState = {}) {
     const selectedModule = current
         ? findModuleById(current.snapshot.rootModule, current.selectedModuleId) || current.snapshot.rootModule
         : null;
     const filteredTimeline = current
         ? filterTimeline(current.timeline, state.eventFilter, state.searchQuery)
         : [];
+    const selectedEvent = current
+        ? current.timeline.find(item => item.id === state.selectedEventId) || filteredTimeline[filteredTimeline.length - 1] || null
+        : null;
+    state.selectedEventId = selectedEvent?.id || null;
     const treeHtml = current
         ? renderModuleTree(current.snapshot.rootModule, current.selectedModuleId, state.searchQuery)
         : '<div style="opacity:.7;padding:10px 0;">No mounted NodomX app.</div>';
+    const pickerActive = !!pickerState.active;
 
     return `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(148,163,184,0.18);gap:16px;">
@@ -28,12 +33,18 @@ export function renderPanel(entries, current, state) {
                 ${renderAppTabs(entries, current?.id)}
                 <button data-action="refresh" style="${buttonStyle("#1d4ed8", "#eff6ff")}">Refresh</button>
                 <button data-action="highlight" style="${buttonStyle("rgba(20,184,166,0.22)", "#ccfbf1")}">Highlight</button>
+                <button data-action="pick" style="${buttonStyle(pickerActive ? "#14b8a6" : "rgba(20,184,166,0.22)", pickerActive ? "#042f2e" : "#ccfbf1")}">${pickerActive ? "Stop pick" : "Pick element"}</button>
                 <button data-action="export" style="${buttonStyle("rgba(148,163,184,0.18)", "#e5eef7")}">Export</button>
                 <button data-action="inspect" style="${buttonStyle("rgba(148,163,184,0.18)", "#e5eef7")}">Inspect</button>
                 <button data-action="clear-timeline" style="${buttonStyle("rgba(249,115,22,0.18)", "#ffedd5")}">Clear timeline</button>
                 <button data-action="close" style="${buttonStyle("rgba(148,163,184,0.18)", "#e5eef7")}">Close</button>
             </div>
         </div>
+        ${pickerActive ? `
+            <div style="padding:10px 16px;border-bottom:1px solid rgba(148,163,184,0.12);background:rgba(20,184,166,0.14);font-size:12px;">
+                Element picker is active. Hover the page to preview a module and click to select it. Press Esc to cancel.
+            </div>
+        ` : ""}
         ${state.notice ? `
             <div style="padding:10px 16px;border-bottom:1px solid rgba(148,163,184,0.12);background:${state.notice.type === "error" ? "rgba(127,29,29,0.35)" : "rgba(6,95,70,0.35)"};font-size:12px;">
                 ${escapeHtml(state.notice.text)}
@@ -45,7 +56,7 @@ export function renderPanel(entries, current, state) {
                 <select data-devtools-filter style="background:rgba(15,23,42,0.85);color:#e5eef7;border:1px solid rgba(148,163,184,0.22);border-radius:12px;padding:10px 12px;outline:none;">
                     ${renderFilterOptions(state.eventFilter)}
                 </select>
-                <div style="font-size:11px;opacity:.75;">Apps: ${entries.length} · Timeline: ${current?.timeline.length || 0} · Modules: ${current?.snapshot.summary.moduleCount || 0}</div>
+                <div style="font-size:11px;opacity:.75;">Apps: ${entries.length} / Timeline: ${current?.timeline.length || 0} / Modules: ${current?.snapshot.summary.moduleCount || 0}</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">${renderInspectorTabs(state.activeTab)}</div>
         </div>
@@ -60,22 +71,25 @@ export function renderPanel(entries, current, state) {
                         <span style="font-size:11px;opacity:.68;">Timeline</span>
                         <span style="font-size:11px;opacity:.68;">${filteredTimeline.length} item(s)</span>
                     </div>
-                    ${renderTimeline(filteredTimeline)}
+                    ${renderTimeline(filteredTimeline, selectedEvent?.id)}
                 </div>
             </section>
             <section data-nodomx-devtools-inspector style="padding:12px 16px;overflow:auto;min-height:0;">
-                ${renderInspector(current, selectedModule, filteredTimeline, state.activeTab)}
+                ${renderInspector(current, selectedModule, filteredTimeline, state.activeTab, selectedEvent)}
             </section>
         </div>
     `;
 }
 
-function renderInspector(current, selectedModule, filteredTimeline, activeTab) {
+function renderInspector(current, selectedModule, filteredTimeline, activeTab, selectedEvent) {
     if (!current) {
         return '<div style="opacity:.7;">No app selected.</div>';
     }
     if (activeTab === "app") {
         return renderAppInspector(current);
+    }
+    if (activeTab === "events") {
+        return renderEventInspector(selectedEvent);
     }
     if (activeTab === "stores") {
         return renderStoresInspector(current.snapshot.store);
@@ -124,7 +138,7 @@ function renderModuleInspector(current, selectedModule, filteredTimeline) {
             </section>
             <section style="${sectionStyle()}">
                 <div style="${sectionTitleStyle()}">Recent module events</div>
-                ${latestEvents.length ? latestEvents.map(renderTimelineItem).join("") : '<div style="opacity:.7;font-size:12px;">No recent events for this module.</div>'}
+                ${latestEvents.length ? latestEvents.map(event => renderTimelineItem(event, false)).join("") : '<div style="opacity:.7;font-size:12px;">No recent events for this module.</div>'}
             </section>
         </div>
     `;
@@ -211,23 +225,23 @@ function renderModuleNode(moduleInfo, selectedModuleId, searchQuery, depth) {
     };
 }
 
-function renderTimeline(events) {
+function renderTimeline(events, selectedEventId) {
     if (!events.length) {
         return '<div style="opacity:.7;font-size:12px;">No timeline events yet.</div>';
     }
-    return events.slice().reverse().map(renderTimelineItem).join("");
+    return events.slice().reverse().map(event => renderTimelineItem(event, event.id === selectedEventId)).join("");
 }
 
-function renderTimelineItem(event) {
+function renderTimelineItem(event, selected = false) {
     return `
-        <div style="display:grid;gap:4px;padding:10px 12px;border-radius:12px;background:rgba(15,23,42,0.85);margin-bottom:8px;">
+        <button data-event-id="${escapeHtml(event.id)}" data-event-module-id="${escapeHtml(event.moduleId ?? "")}" style="display:grid;gap:4px;width:100%;cursor:pointer;border:none;text-align:left;padding:10px 12px;border-radius:12px;background:${selected ? "rgba(20,184,166,0.22)" : "rgba(15,23,42,0.85)"};color:${selected ? "#ccfbf1" : "#e5eef7"};margin-bottom:8px;">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
                 <strong style="font-size:11px;">${escapeHtml(event.summary)}</strong>
                 <span style="font-size:10px;opacity:.68;">${escapeHtml(formatTime(event.at))}</span>
             </div>
-            <div style="font-size:10px;opacity:.72;">${escapeHtml(event.category)} · ${escapeHtml(event.reason)}${event.moduleName ? ` · ${escapeHtml(event.moduleName)}` : ""}</div>
+            <div style="font-size:10px;opacity:.72;">${escapeHtml(event.category)} / ${escapeHtml(event.reason)}${event.moduleName ? ` / ${escapeHtml(event.moduleName)}` : ""}</div>
             ${event.hookName ? `<div style="font-size:10px;opacity:.72;">Hook: ${escapeHtml(event.hookName)}</div>` : ""}
-        </div>
+        </button>
     `;
 }
 
@@ -257,6 +271,7 @@ function renderInspectorTabs(activeTab) {
     return [
         ["module", "Module"],
         ["app", "App"],
+        ["events", "Events"],
         ["stores", "Stores"],
         ["raw", "Raw JSON"]
     ].map(([value, label]) => {
@@ -283,6 +298,33 @@ function renderEditableBlock(label, target, value) {
 
 function renderCodeBlock(value) {
     return `<pre style="margin:0;padding:12px;background:rgba(15,23,42,0.85);border-radius:12px;overflow:auto;font-size:11px;line-height:1.5;max-height:220px;">${escapeHtml(JSON.stringify(value ?? null, null, 2))}</pre>`;
+}
+
+function renderEventInspector(event) {
+    if (!event) {
+        return `<section style="${sectionStyle()}"><div style="${sectionTitleStyle()}">Event details</div><div style="opacity:.7;font-size:12px;">Select a timeline event to inspect its details.</div></section>`;
+    }
+    return `
+        <div style="display:grid;gap:14px;">
+            <section style="${sectionStyle()}">
+                <div style="${sectionTitleStyle()}">Event details</div>
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;font-size:12px;">
+                    ${renderKeyValue("Summary", event.summary)}
+                    ${renderKeyValue("When", formatTime(event.at))}
+                    ${renderKeyValue("Category", event.category)}
+                    ${renderKeyValue("Reason", event.reason)}
+                    ${renderKeyValue("Module", event.moduleName || "-")}
+                    ${renderKeyValue("Module ID", event.moduleId ?? "-")}
+                    ${renderKeyValue("Hot ID", event.hotId || "-")}
+                    ${renderKeyValue("Hook", event.hookName || "-")}
+                </div>
+            </section>
+            <section style="${sectionStyle()}">
+                <div style="${sectionTitleStyle()}">Payload</div>
+                ${renderCodeBlock(event.details || {})}
+            </section>
+        </div>
+    `;
 }
 
 function renderKeyValue(key, value) {
