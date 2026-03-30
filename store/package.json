@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/store",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Official store primitives for building shared state in NodomX applications.",
   "type": "module",
   "main": "./src/index.js",
@@ -38,6 +38,6 @@
     "test": "node ./tests/store.smoke.mjs"
   },
   "dependencies": {
-    "nodomx": "^0.2.4"
+    "nodomx": "^0.2.5"
   }
 }

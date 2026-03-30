@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/ssr",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "SSR, state resume, and static generation helpers for NodomX applications.",
   "type": "module",
   "main": "./src/index.js",
@@ -40,6 +40,6 @@
   },
   "dependencies": {
     "jsdom": "^29.0.1",
-    "nodomx": "^0.2.4"
+    "nodomx": "^0.2.5"
   }
 }

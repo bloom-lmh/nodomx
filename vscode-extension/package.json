@@ -2,7 +2,7 @@
   "name": "nodomx-nd-vscode",
   "displayName": "NodomX ND",
   "description": "VSCode support for NodomX .nd single-file components.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "SWUST-WEBLAB-LMH",
   "private": false,
   "license": "MIT",
@@ -109,7 +109,7 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@nodomx/nd-compiler": "0.2.4",
+    "@nodomx/nd-compiler": "^0.2.5",
     "@vscode/vsce": "^3.6.2",
     "esbuild": "^0.25.1",
     "vscode-languageclient": "^9.0.1",

@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/runtime-registry",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Runtime registries for directives, modules and custom elements.",
   "type": "module",
   "main": "./dist/index.js",
@@ -40,7 +40,7 @@
     "test": "npm run build"
   },
   "dependencies": {
-    "@nodomx/shared": "^0.2.4"
+    "@nodomx/shared": "^0.2.5"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

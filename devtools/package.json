@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/devtools",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Browser devtools bridge and overlay for NodomX applications.",
   "type": "module",
   "main": "./src/index.js",
@@ -33,7 +33,7 @@
     "url": "https://github.com/bloom-lmh/nodomx/issues"
   },
   "dependencies": {
-    "nodomx": "^0.2.4"
+    "nodomx": "^0.2.5"
   },
   "devDependencies": {
     "jsdom": "^29.0.1"

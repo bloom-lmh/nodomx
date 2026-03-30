@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/runtime-app",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "App and composition runtime for NodomX.",
   "type": "module",
   "main": "./dist/index.js",
@@ -40,13 +40,13 @@
     "test": "npm run build"
   },
   "dependencies": {
-    "@nodomx/shared": "^0.2.4",
-    "@nodomx/runtime-view": "^0.2.4",
-    "@nodomx/runtime-module": "^0.2.4",
-    "@nodomx/reactivity": "^0.2.4",
-    "@nodomx/runtime-router": "^0.2.4",
-    "@nodomx/runtime-registry": "^0.2.4",
-    "@nodomx/runtime-scheduler": "^0.2.4"
+    "@nodomx/shared": "^0.2.5",
+    "@nodomx/runtime-view": "^0.2.5",
+    "@nodomx/runtime-module": "^0.2.5",
+    "@nodomx/reactivity": "^0.2.5",
+    "@nodomx/runtime-router": "^0.2.5",
+    "@nodomx/runtime-registry": "^0.2.5",
+    "@nodomx/runtime-scheduler": "^0.2.5"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

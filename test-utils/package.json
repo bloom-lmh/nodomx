@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/test-utils",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Official testing helpers for mounting and interacting with NodomX components.",
   "type": "module",
   "main": "./src/index.js",
@@ -39,6 +39,6 @@
   },
   "dependencies": {
     "jsdom": "^29.0.1",
-    "nodomx": "^0.2.4"
+    "nodomx": "^0.2.5"
   }
 }

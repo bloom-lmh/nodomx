@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/nd-compiler",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Compiler utilities for NodomX .nd single-file components.",
   "type": "module",
   "main": "./src/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/runtime-view",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Renderer and DOM update runtime for NodomX.",
   "type": "module",
   "main": "./dist/index.js",
@@ -40,11 +40,11 @@
     "test": "npm run build"
   },
   "dependencies": {
-    "@nodomx/shared": "^0.2.4",
-    "@nodomx/runtime-optimize": "^0.2.4",
-    "@nodomx/runtime-template": "^0.2.4",
-    "@nodomx/runtime-registry": "^0.2.4",
-    "@nodomx/runtime-scheduler": "^0.2.4"
+    "@nodomx/shared": "^0.2.5",
+    "@nodomx/runtime-optimize": "^0.2.5",
+    "@nodomx/runtime-template": "^0.2.5",
+    "@nodomx/runtime-registry": "^0.2.5",
+    "@nodomx/runtime-scheduler": "^0.2.5"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

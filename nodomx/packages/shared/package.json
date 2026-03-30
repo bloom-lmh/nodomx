@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/shared",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Shared runtime utilities and types for NodomX.",
   "type": "module",
   "main": "./dist/index.js",

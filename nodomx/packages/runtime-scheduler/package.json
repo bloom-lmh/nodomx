@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/runtime-scheduler",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Scheduler and request runtime for NodomX.",
   "type": "module",
   "main": "./dist/index.js",
@@ -40,7 +40,7 @@
     "test": "npm run build"
   },
   "dependencies": {
-    "@nodomx/shared": "^0.2.4"
+    "@nodomx/shared": "^0.2.5"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

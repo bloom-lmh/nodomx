@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/rollup-plugin-nd",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Rollup plugin for importing NodomX .nd single-file components.",
   "type": "module",
   "main": "./src/index.js",
@@ -38,10 +38,10 @@
     "test": "node ./tests/rollup.smoke.mjs"
   },
   "dependencies": {
-    "@nodomx/nd-compiler": "^0.2.4"
+    "@nodomx/nd-compiler": "^0.2.5"
   },
   "peerDependencies": {
-    "nodomx": "^0.2.4",
+    "nodomx": "^0.2.5",
     "rollup": "^3.26.0"
   }
 }

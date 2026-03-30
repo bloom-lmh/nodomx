@@ -1,6 +1,6 @@
 {
   "name": "@nodomx/runtime-optimize",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Optimization helpers for NodomX runtime updates.",
   "type": "module",
   "main": "./dist/index.js",
