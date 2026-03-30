@@ -36,6 +36,30 @@ type DevtoolsHook = {
     notifyUpdate?: (app: AppContext["app"], reason: string, details?: Record<string, unknown>) => void;
 };
 
+const DEVTOOLS_TIMELINE_HOOKS = new Set([
+    "onMount",
+    "onUnMount",
+    "onActivated",
+    "onDeactivated",
+    "onBeforeEnter",
+    "onEnter",
+    "onAfterEnter",
+    "onEnterCancelled",
+    "onBeforeLeave",
+    "onLeave",
+    "onAfterLeave",
+    "onLeaveCancelled",
+    "onBeforeMove",
+    "onMove",
+    "onAfterMove",
+    "onMoveCancelled",
+    "onSuspensePending",
+    "onSuspenseFallback",
+    "onSuspenseResolve",
+    "onSuspenseError",
+    "onSuspenseRetry"
+]);
+
 export class Module {
     
     public id: number;
@@ -439,6 +463,15 @@ export class Module {
             result = foo.apply(this,args);
         }
         this.runCompositionHooks(eventName, ...args);
+        if(DEVTOOLS_TIMELINE_HOOKS.has(eventName)){
+            notifyDevtoolsForModule(this, 'hook', {
+                hookArgs: summarizeHookArgs(args),
+                hookName: eventName,
+                hotId: this.getHotId?.(),
+                moduleId: this.id,
+                moduleName: this.constructor?.name || 'AnonymousModule'
+            });
+        }
         return result;
     }
 
@@ -859,7 +892,7 @@ function isKeepAliveManagedValue(value: boolean | { disabled?: boolean } | undef
     return !value.disabled;
 }
 
-function notifyDevtoolsForModule(module: Module, reason: string): void {
+function notifyDevtoolsForModule(module: Module, reason: string, details?: Record<string, unknown>): void {
     const app = module.appContext?.app;
     if (!app) {
         return;
@@ -870,8 +903,31 @@ function notifyDevtoolsForModule(module: Module, reason: string): void {
     const hook = (windowObject?.["__NODOMX_DEVTOOLS_HOOK__"] || globalRecord?.["__NODOMX_DEVTOOLS_HOOK__"]) as DevtoolsHook | undefined;
     if (hook && typeof hook.notifyUpdate === "function") {
         hook.notifyUpdate(app, reason, {
+            ...details,
             hotId: module.getHotId?.()
         });
     }
+}
+
+function summarizeHookArgs(args: unknown[]): string[] {
+    return args.map(value => {
+        if(value === null || value === undefined){
+            return String(value);
+        }
+        if(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'){
+            return String(value);
+        }
+        if(value instanceof Element){
+            return `<${value.tagName.toLowerCase()}>`;
+        }
+        if(Array.isArray(value)){
+            return `[Array(${value.length})]`;
+        }
+        if(typeof value === 'object'){
+            const keys = Object.keys(value as Record<string, unknown>);
+            return keys.length ? `{${keys.slice(0, 3).join(', ')}}` : '{}';
+        }
+        return typeof value;
+    });
 }
 

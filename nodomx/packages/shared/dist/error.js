@@ -1,5 +1,4 @@
 import { NodomMessage } from "./runtime";
-import { Util } from "./util";
 /**
  * 异常处理类
  */
@@ -12,7 +11,20 @@ export class NError extends Error {
             return;
         }
         //编译提示信息
-        this.message = Util.compileStr(msg, params);
+        this.message = compileMessage(msg, ...params);
     }
+}
+function compileMessage(src, ...params) {
+    if (!params || params.length === 0) {
+        return src;
+    }
+    let output = src;
+    for (let index = 0; index < params.length; index++) {
+        if (output.indexOf(`{${index}}`) === -1) {
+            break;
+        }
+        output = output.replace(new RegExp(`\\{${index}\\}`, "g"), String(params[index]));
+    }
+    return output;
 }
 //# sourceMappingURL=error.js.map

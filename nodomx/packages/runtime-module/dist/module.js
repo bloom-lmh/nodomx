@@ -12,6 +12,29 @@ import { DomManager } from "./dommanager";
 import { ModelManager } from "./modelmanager";
 import { Watcher } from "./wacher";
 import { cloneStateValue, isComputed, isReactive, isRef, toRaw, withCurrentScope } from "@nodomx/reactivity";
+const DEVTOOLS_TIMELINE_HOOKS = new Set([
+    "onMount",
+    "onUnMount",
+    "onActivated",
+    "onDeactivated",
+    "onBeforeEnter",
+    "onEnter",
+    "onAfterEnter",
+    "onEnterCancelled",
+    "onBeforeLeave",
+    "onLeave",
+    "onAfterLeave",
+    "onLeaveCancelled",
+    "onBeforeMove",
+    "onMove",
+    "onAfterMove",
+    "onMoveCancelled",
+    "onSuspensePending",
+    "onSuspenseFallback",
+    "onSuspenseResolve",
+    "onSuspenseError",
+    "onSuspenseRetry"
+]);
 export class Module {
     constructor(id) {
         this.children = [];
@@ -278,12 +301,22 @@ export class Module {
         return this.emitHook(eventName, this.model);
     }
     emitHook(eventName, ...args) {
+        var _a, _b;
         const foo = this[eventName];
         let result;
         if (foo && typeof foo === 'function') {
             result = foo.apply(this, args);
         }
         this.runCompositionHooks(eventName, ...args);
+        if (DEVTOOLS_TIMELINE_HOOKS.has(eventName)) {
+            notifyDevtoolsForModule(this, 'hook', {
+                hookArgs: summarizeHookArgs(args),
+                hookName: eventName,
+                hotId: (_a = this.getHotId) === null || _a === void 0 ? void 0 : _a.call(this),
+                moduleId: this.id,
+                moduleName: ((_b = this.constructor) === null || _b === void 0 ? void 0 : _b.name) || 'AnonymousModule'
+            });
+        }
         return result;
     }
     setProps(props, dom) {
@@ -640,7 +673,7 @@ function isKeepAliveManagedValue(value) {
     }
     return !value.disabled;
 }
-function notifyDevtoolsForModule(module, reason) {
+function notifyDevtoolsForModule(module, reason, details) {
     var _a, _b;
     const app = (_a = module.appContext) === null || _a === void 0 ? void 0 : _a.app;
     if (!app) {
@@ -652,8 +685,30 @@ function notifyDevtoolsForModule(module, reason) {
     const hook = ((windowObject === null || windowObject === void 0 ? void 0 : windowObject["__NODOMX_DEVTOOLS_HOOK__"]) || (globalRecord === null || globalRecord === void 0 ? void 0 : globalRecord["__NODOMX_DEVTOOLS_HOOK__"]));
     if (hook && typeof hook.notifyUpdate === "function") {
         hook.notifyUpdate(app, reason, {
+            ...details,
             hotId: (_b = module.getHotId) === null || _b === void 0 ? void 0 : _b.call(module)
         });
     }
+}
+function summarizeHookArgs(args) {
+    return args.map(value => {
+        if (value === null || value === undefined) {
+            return String(value);
+        }
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            return String(value);
+        }
+        if (value instanceof Element) {
+            return `<${value.tagName.toLowerCase()}>`;
+        }
+        if (Array.isArray(value)) {
+            return `[Array(${value.length})]`;
+        }
+        if (typeof value === 'object') {
+            const keys = Object.keys(value);
+            return keys.length ? `{${keys.slice(0, 3).join(', ')}}` : '{}';
+        }
+        return typeof value;
+    });
 }
 //# sourceMappingURL=module.js.map

@@ -808,6 +808,116 @@ function setRuntimeLang(lang) {
 }
 
 /**
+ * 异常处理类
+ */
+class NError extends Error {
+    constructor(errorName, ...params) {
+        super(errorName);
+        const msg = NodomMessage.ErrorMsgs[errorName];
+        if (msg === undefined) {
+            this.message = "未知错误";
+            return;
+        }
+        //编译提示信息
+        this.message = compileMessage(msg, ...params);
+    }
+}
+function compileMessage(src, ...params) {
+    if (!params || params.length === 0) {
+        return src;
+    }
+    let output = src;
+    for (let index = 0; index < params.length; index++) {
+        if (output.indexOf(`{${index}}`) === -1) {
+            break;
+        }
+        output = output.replace(new RegExp(`\\{${index}\\}`, "g"), String(params[index]));
+    }
+    return output;
+}
+
+/**
+ * 全局缓存
+ *
+ * @remarks
+ * 用于所有模块共享数据，实现模块通信
+ */
+class GlobalCache {
+    /**
+     * 保存到cache
+     * @param key - 键，支持"."（多级数据分割）
+     * @param value - 值
+     */
+    static set(key, value) {
+        this.cache.set(key, value);
+    }
+    /**
+     * 从cache读取
+     * @param key - 键，支持"."（多级数据分割）
+     * @returns 缓存的值或undefined
+     */
+    static get(key) {
+        return this.cache.get(key);
+    }
+    /**
+     * 订阅
+     *
+     * @remarks
+     * 如果订阅的数据发生改变，则会触发handler
+     *
+     * @param module - 订阅的模块
+     * @param key - 订阅的属性名
+     * @param handler - 回调函数或方法名
+     */
+    static subscribe(module, key, handler) {
+        this.cache.subscribe(module, key, handler);
+    }
+    /**
+     * 从cache移除
+     * @param key - 键，支持"."（多级数据分割）
+     */
+    static remove(key) {
+        this.cache.remove(key);
+    }
+}
+/**
+ * NCache实例，用于存放缓存对象
+ */
+GlobalCache.cache = new NCache();
+
+var PatchFlags;
+(function (PatchFlags) {
+    PatchFlags[PatchFlags["NONE"] = 0] = "NONE";
+    PatchFlags[PatchFlags["TEXT"] = 1] = "TEXT";
+    PatchFlags[PatchFlags["CLASS"] = 2] = "CLASS";
+    PatchFlags[PatchFlags["STYLE"] = 4] = "STYLE";
+    PatchFlags[PatchFlags["PROPS"] = 8] = "PROPS";
+    PatchFlags[PatchFlags["ASSETS"] = 16] = "ASSETS";
+    PatchFlags[PatchFlags["EVENTS"] = 32] = "EVENTS";
+    PatchFlags[PatchFlags["DIRECTIVES"] = 64] = "DIRECTIVES";
+    PatchFlags[PatchFlags["KEYED_FRAGMENT"] = 128] = "KEYED_FRAGMENT";
+    PatchFlags[PatchFlags["UNKEYED_FRAGMENT"] = 256] = "UNKEYED_FRAGMENT";
+    PatchFlags[PatchFlags["BAIL"] = 512] = "BAIL";
+})(PatchFlags || (PatchFlags = {}));
+var StructureFlags;
+(function (StructureFlags) {
+    StructureFlags[StructureFlags["NONE"] = 0] = "NONE";
+    StructureFlags[StructureFlags["CONDITIONAL"] = 1] = "CONDITIONAL";
+    StructureFlags[StructureFlags["SLOT"] = 2] = "SLOT";
+    StructureFlags[StructureFlags["MODULE"] = 4] = "MODULE";
+    StructureFlags[StructureFlags["ROUTE_LINK"] = 8] = "ROUTE_LINK";
+    StructureFlags[StructureFlags["ROUTE_VIEW"] = 16] = "ROUTE_VIEW";
+    StructureFlags[StructureFlags["RECURSIVE"] = 32] = "RECURSIVE";
+    StructureFlags[StructureFlags["LIST"] = 64] = "LIST";
+})(StructureFlags || (StructureFlags = {}));
+var EModuleState;
+(function (EModuleState) {
+    EModuleState[EModuleState["INIT"] = 1] = "INIT";
+    EModuleState[EModuleState["UNMOUNTED"] = 2] = "UNMOUNTED";
+    EModuleState[EModuleState["MOUNTED"] = 3] = "MOUNTED";
+})(EModuleState || (EModuleState = {}));
+
+/**
  * 基础服务库
  */
 class Util {
@@ -1121,103 +1231,6 @@ Util.generatedId = 1;
 Util.keyWordMap = new Map();
 //初始化keymap
 Util.initKeyMap();
-
-/**
- * 异常处理类
- */
-class NError extends Error {
-    constructor(errorName, ...params) {
-        super(errorName);
-        const msg = NodomMessage.ErrorMsgs[errorName];
-        if (msg === undefined) {
-            this.message = "未知错误";
-            return;
-        }
-        //编译提示信息
-        this.message = Util.compileStr(msg, params);
-    }
-}
-
-/**
- * 全局缓存
- *
- * @remarks
- * 用于所有模块共享数据，实现模块通信
- */
-class GlobalCache {
-    /**
-     * 保存到cache
-     * @param key - 键，支持"."（多级数据分割）
-     * @param value - 值
-     */
-    static set(key, value) {
-        this.cache.set(key, value);
-    }
-    /**
-     * 从cache读取
-     * @param key - 键，支持"."（多级数据分割）
-     * @returns 缓存的值或undefined
-     */
-    static get(key) {
-        return this.cache.get(key);
-    }
-    /**
-     * 订阅
-     *
-     * @remarks
-     * 如果订阅的数据发生改变，则会触发handler
-     *
-     * @param module - 订阅的模块
-     * @param key - 订阅的属性名
-     * @param handler - 回调函数或方法名
-     */
-    static subscribe(module, key, handler) {
-        this.cache.subscribe(module, key, handler);
-    }
-    /**
-     * 从cache移除
-     * @param key - 键，支持"."（多级数据分割）
-     */
-    static remove(key) {
-        this.cache.remove(key);
-    }
-}
-/**
- * NCache实例，用于存放缓存对象
- */
-GlobalCache.cache = new NCache();
-
-var PatchFlags;
-(function (PatchFlags) {
-    PatchFlags[PatchFlags["NONE"] = 0] = "NONE";
-    PatchFlags[PatchFlags["TEXT"] = 1] = "TEXT";
-    PatchFlags[PatchFlags["CLASS"] = 2] = "CLASS";
-    PatchFlags[PatchFlags["STYLE"] = 4] = "STYLE";
-    PatchFlags[PatchFlags["PROPS"] = 8] = "PROPS";
-    PatchFlags[PatchFlags["ASSETS"] = 16] = "ASSETS";
-    PatchFlags[PatchFlags["EVENTS"] = 32] = "EVENTS";
-    PatchFlags[PatchFlags["DIRECTIVES"] = 64] = "DIRECTIVES";
-    PatchFlags[PatchFlags["KEYED_FRAGMENT"] = 128] = "KEYED_FRAGMENT";
-    PatchFlags[PatchFlags["UNKEYED_FRAGMENT"] = 256] = "UNKEYED_FRAGMENT";
-    PatchFlags[PatchFlags["BAIL"] = 512] = "BAIL";
-})(PatchFlags || (PatchFlags = {}));
-var StructureFlags;
-(function (StructureFlags) {
-    StructureFlags[StructureFlags["NONE"] = 0] = "NONE";
-    StructureFlags[StructureFlags["CONDITIONAL"] = 1] = "CONDITIONAL";
-    StructureFlags[StructureFlags["SLOT"] = 2] = "SLOT";
-    StructureFlags[StructureFlags["MODULE"] = 4] = "MODULE";
-    StructureFlags[StructureFlags["ROUTE_LINK"] = 8] = "ROUTE_LINK";
-    StructureFlags[StructureFlags["ROUTE_VIEW"] = 16] = "ROUTE_VIEW";
-    StructureFlags[StructureFlags["RECURSIVE"] = 32] = "RECURSIVE";
-    StructureFlags[StructureFlags["LIST"] = 64] = "LIST";
-})(StructureFlags || (StructureFlags = {}));
-var EModuleState;
-(function (EModuleState) {
-    EModuleState[EModuleState["INIT"] = 1] = "INIT";
-    EModuleState[EModuleState["UNMOUNTED"] = 2] = "UNMOUNTED";
-    EModuleState[EModuleState["MOUNTED"] = 3] = "MOUNTED";
-})(EModuleState || (EModuleState = {}));
 
 /**
  * 自定义元素管理器
@@ -5658,6 +5671,29 @@ class ObjectManager {
     }
 }
 
+const DEVTOOLS_TIMELINE_HOOKS = new Set([
+    "onMount",
+    "onUnMount",
+    "onActivated",
+    "onDeactivated",
+    "onBeforeEnter",
+    "onEnter",
+    "onAfterEnter",
+    "onEnterCancelled",
+    "onBeforeLeave",
+    "onLeave",
+    "onAfterLeave",
+    "onLeaveCancelled",
+    "onBeforeMove",
+    "onMove",
+    "onAfterMove",
+    "onMoveCancelled",
+    "onSuspensePending",
+    "onSuspenseFallback",
+    "onSuspenseResolve",
+    "onSuspenseError",
+    "onSuspenseRetry"
+]);
 class Module {
     constructor(id) {
         this.children = [];
@@ -5924,12 +5960,22 @@ class Module {
         return this.emitHook(eventName, this.model);
     }
     emitHook(eventName, ...args) {
+        var _a, _b;
         const foo = this[eventName];
         let result;
         if (foo && typeof foo === 'function') {
             result = foo.apply(this, args);
         }
         this.runCompositionHooks(eventName, ...args);
+        if (DEVTOOLS_TIMELINE_HOOKS.has(eventName)) {
+            notifyDevtoolsForModule(this, 'hook', {
+                hookArgs: summarizeHookArgs(args),
+                hookName: eventName,
+                hotId: (_a = this.getHotId) === null || _a === void 0 ? void 0 : _a.call(this),
+                moduleId: this.id,
+                moduleName: ((_b = this.constructor) === null || _b === void 0 ? void 0 : _b.name) || 'AnonymousModule'
+            });
+        }
         return result;
     }
     setProps(props, dom) {
@@ -6286,7 +6332,7 @@ function isKeepAliveManagedValue(value) {
     }
     return !value.disabled;
 }
-function notifyDevtoolsForModule(module, reason) {
+function notifyDevtoolsForModule(module, reason, details) {
     var _a, _b;
     const app = (_a = module.appContext) === null || _a === void 0 ? void 0 : _a.app;
     if (!app) {
@@ -6297,10 +6343,29 @@ function notifyDevtoolsForModule(module, reason) {
     const globalRecord = globalObject;
     const hook = ((windowObject === null || windowObject === void 0 ? void 0 : windowObject["__NODOMX_DEVTOOLS_HOOK__"]) || (globalRecord === null || globalRecord === void 0 ? void 0 : globalRecord["__NODOMX_DEVTOOLS_HOOK__"]));
     if (hook && typeof hook.notifyUpdate === "function") {
-        hook.notifyUpdate(app, reason, {
-            hotId: (_b = module.getHotId) === null || _b === void 0 ? void 0 : _b.call(module)
-        });
+        hook.notifyUpdate(app, reason, Object.assign(Object.assign({}, details), { hotId: (_b = module.getHotId) === null || _b === void 0 ? void 0 : _b.call(module) }));
     }
+}
+function summarizeHookArgs(args) {
+    return args.map(value => {
+        if (value === null || value === undefined) {
+            return String(value);
+        }
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            return String(value);
+        }
+        if (value instanceof Element) {
+            return `<${value.tagName.toLowerCase()}>`;
+        }
+        if (Array.isArray(value)) {
+            return `[Array(${value.length})]`;
+        }
+        if (typeof value === 'object') {
+            const keys = Object.keys(value);
+            return keys.length ? `{${keys.slice(0, 3).join(', ')}}` : '{}';
+        }
+        return typeof value;
+    });
 }
 
 function normalizeRoutePath(path) {
