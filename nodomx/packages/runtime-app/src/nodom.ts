@@ -127,6 +127,9 @@ export class Nodom {
         }
         if (!this["$" + (plugin as Record<string, unknown>)["name"]]) {
             this["$" + (plugin as Record<string, unknown>)["name"]] = Reflect.construct(plugin as UnknownClass, params || []);
+            if ((plugin as Record<string, unknown>)["name"] === "Router" && typeof globalThis !== "undefined") {
+                (globalThis as Record<string, unknown>)["__NODOMX_ROUTER__"] = this["$" + (plugin as Record<string, unknown>)["name"]];
+            }
         }
         return this["$" + (plugin as Record<string, unknown>)["name"]];
     }

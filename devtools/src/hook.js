@@ -142,6 +142,31 @@ export function createHook(globalTarget, options = {}) {
         clearHighlight() {
             clearHighlight();
         },
+        navigateRoute(path, options = {}) {
+            const entry = resolveEntry(options.appId);
+            const router = resolveRouter(globalTarget, entry);
+            if (!router) {
+                throw new Error("No Router instance is available for devtools navigation.");
+            }
+            const targetPath = normalizeRouteTarget(path);
+            if (!targetPath) {
+                throw new Error("Route path cannot be empty.");
+            }
+            if (options.replace) {
+                router.replace(targetPath);
+            } else {
+                router.push(targetPath);
+            }
+            if (entry?.app) {
+                this.notifyUpdate(entry.app, "devtools-route-nav", {
+                    category: "manual",
+                    replace: !!options.replace,
+                    routePath: targetPath,
+                    summary: `${options.replace ? "Replaced" : "Pushed"} route ${targetPath}`
+                });
+            }
+            return targetPath;
+        },
         pickElement(targetNode, appId) {
             const match = resolveModuleMatchForNode(targetNode, appId);
             if (!match) {
@@ -367,7 +392,9 @@ export function createHook(globalTarget, options = {}) {
             selectedAppId = id;
             hook.__selectedAppId = id;
         }
-        const moduleSnapshot = resolveModuleSnapshot(snapshot.rootModule, details);
+        const moduleSnapshot = shouldResolveModuleSnapshot(details)
+            ? resolveModuleSnapshot(snapshot.rootModule, details)
+            : null;
         recordTimelineEvent(entry, reason, {
             appId: id,
             category: classifyEventCategory(reason, details?.hookName),
@@ -638,4 +665,88 @@ function clonePatchValue(value) {
         return output;
     }
     return value;
+}
+
+function resolveRouter(globalTarget, entry) {
+    const explicitRouter = globalTarget?.__NODOMX_ROUTER__;
+    if (explicitRouter && typeof explicitRouter.push === "function" && typeof explicitRouter.replace === "function") {
+        return explicitRouter;
+    }
+    const nodomRouter = globalTarget?.Nodom?.$Router || globalThis?.Nodom?.$Router;
+    if (nodomRouter && typeof nodomRouter.push === "function" && typeof nodomRouter.replace === "function") {
+        return nodomRouter;
+    }
+    const routeModel = entry?.app?.instance?.model?.$route;
+    if (routeModel?.router && typeof routeModel.router.push === "function" && typeof routeModel.router.replace === "function") {
+        return routeModel.router;
+    }
+    return null;
+}
+
+function shouldResolveModuleSnapshot(details) {
+    if (!details || typeof details !== "object") {
+        return true;
+    }
+    if (details.moduleId !== undefined && details.moduleId !== null) {
+        return true;
+    }
+    if (details.hotId) {
+        return true;
+    }
+    if (details.storeId) {
+        return false;
+    }
+    return true;
+}
+
+function normalizeRouteTarget(target) {
+    if (typeof target === "string") {
+        return target.trim();
+    }
+    if (!target || typeof target !== "object") {
+        return "";
+    }
+    const path = String(target.path || "").trim();
+    if (!path) {
+        return "";
+    }
+    const query = normalizeRouteQuery(target.query);
+    const queryText = serializeRouteQuery(query);
+    const hashText = normalizeRouteHash(target.hash);
+    return `${path}${queryText}${hashText}`;
+}
+
+function normalizeRouteQuery(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return {};
+    }
+    return value;
+}
+
+function serializeRouteQuery(query) {
+    const parts = [];
+    for (const [key, value] of Object.entries(query)) {
+        if (value === undefined || value === null || value === "") {
+            continue;
+        }
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                if (item === undefined || item === null || item === "") {
+                    continue;
+                }
+                parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(item))}`);
+            }
+            continue;
+        }
+        parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    }
+    return parts.length ? `?${parts.join("&")}` : "";
+}
+
+function normalizeRouteHash(hash) {
+    const value = String(hash || "").trim();
+    if (!value) {
+        return "";
+    }
+    return value.startsWith("#") ? value : `#${value}`;
 }

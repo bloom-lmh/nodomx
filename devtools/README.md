@@ -6,12 +6,15 @@
 
 - Discover mounted NodomX apps automatically
 - Browse the module tree and inspect the selected module
+- Auto-scroll the tree to the selected module and jump back from picked DOM nodes
 - Inspect `setup`, `state`, `props`, `route`, `exposed`, and official store state
 - Record runtime timeline events including `Transition`, `KeepAlive`, and `Suspense`
+- Group timeline events by reason or module and drill into event details
 - Highlight the selected module's real DOM
 - Pick a live DOM element and jump back to the owning module
 - Patch module `setup` / `state` directly from the panel
 - Patch official store state directly from the panel
+- Edit route path, query JSON, and hash directly from the panel
 - Export snapshots and inspect data in the browser console
 - Open or close the panel with `Ctrl + Shift + D`
 
@@ -37,9 +40,9 @@ app.mount("#app");
 
 - `App tabs`: switch between mounted apps
 - `Module tree`: browse modules, search by name or hot id, and change selection
-- `Timeline`: review lifecycle, render, and suspense-related events
+- `Timeline`: review lifecycle, render, and suspense-related events, then group them by reason or module
 - `Events`: inspect the selected timeline event payload in detail
-- `Inspector`: inspect and patch the selected module or store
+- `Inspector`: inspect and patch the selected module or store, and edit route path/query/hash
 - `Pick element`: hover the page and click a real DOM element to focus its owning module
 
 ## Runtime API
@@ -64,6 +67,7 @@ Common hook methods:
 - `hook.inspectSelection(appId?, moduleId?)`
 - `hook.highlightSelection(appId?, moduleId?)`
 - `hook.pickElement(target, appId?)`
+- `hook.navigateRoute(pathOrLocation, options?)`
 - `hook.applyModulePatch(appId?, moduleId?, "setup" | "state", payload)`
 - `hook.applyStorePatch(appId?, storeId, payload)`
 

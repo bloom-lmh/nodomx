@@ -28,7 +28,11 @@ export function createOverlay(documentRef, hook, getSelectedAppId) {
         activeTab: "module",
         eventFilter: "all",
         notice: null,
-        searchQuery: ""
+        searchQuery: "",
+        selectedEventId: null,
+        selectedModuleOnly: false,
+        timelineGroupBy: "none",
+        timelineGroupKey: ""
     };
 
     return {
@@ -151,6 +155,39 @@ function bindOverlayEvents(root, hook, state, entries) {
         state.eventFilter = event.target.value || "all";
         rerender();
     });
+    root.querySelector('[data-action="toggle-module-events"]')?.addEventListener("click", () => {
+        state.selectedModuleOnly = !state.selectedModuleOnly;
+        rerender();
+    });
+    for (const button of root.querySelectorAll("[data-filter-category]")) {
+        button.addEventListener("click", () => {
+            state.eventFilter = button.getAttribute("data-filter-category") || "all";
+            rerender();
+        });
+    }
+    for (const button of root.querySelectorAll("[data-group-by]")) {
+        button.addEventListener("click", () => {
+            const nextGroupBy = button.getAttribute("data-group-by") || "none";
+            state.timelineGroupBy = nextGroupBy;
+            if (nextGroupBy === "none") {
+                state.timelineGroupKey = "";
+            }
+            rerender();
+        });
+    }
+    for (const button of root.querySelectorAll("[data-group-value]")) {
+        button.addEventListener("click", () => {
+            const nextGroupBy = button.getAttribute("data-group-field") || "none";
+            const nextKey = button.getAttribute("data-group-value") || "";
+            if (state.timelineGroupBy === nextGroupBy && state.timelineGroupKey === nextKey) {
+                state.timelineGroupKey = "";
+            } else {
+                state.timelineGroupBy = nextGroupBy;
+                state.timelineGroupKey = nextKey;
+            }
+            rerender();
+        });
+    }
     for (const button of root.querySelectorAll("[data-inspector-tab]")) {
         button.addEventListener("click", () => {
             state.activeTab = button.getAttribute("data-inspector-tab") || "module";
@@ -187,6 +224,27 @@ function bindOverlayEvents(root, hook, state, entries) {
             }
         });
     }
+    for (const button of root.querySelectorAll("[data-route-action]")) {
+        button.addEventListener("click", () => {
+            if (!current) {
+                return;
+            }
+            const target = button.getAttribute("data-route-action");
+            const editorKey = button.getAttribute("data-route-editor-target");
+            try {
+                const routePayload = readRouteEditorPayload(root, editorKey);
+                hook.navigateRoute(routePayload, {
+                    appId: current.id,
+                    replace: target === "replace"
+                });
+                setNotice("success", `${target === "replace" ? "Replaced" : "Pushed"} route ${routePayload.path}.`);
+            } catch (error) {
+                setNotice("error", error.message || "Failed to navigate route.");
+            }
+        });
+    }
+
+    scrollSelections(root);
 
     function rerender() {
         const nextEntries = Array.from(hook.apps.values());
@@ -205,6 +263,15 @@ function bindOverlayEvents(root, hook, state, entries) {
     }
 }
 
+function scrollSelections(root) {
+    root.querySelector('[data-selected-module="true"]')?.scrollIntoView?.({
+        block: "nearest"
+    });
+    root.querySelector('[data-selected-event="true"]')?.scrollIntoView?.({
+        block: "nearest"
+    });
+}
+
 function getSelectedAppId(entries, hook) {
     if (!hook || !entries?.length) {
         return null;
@@ -214,4 +281,32 @@ function getSelectedAppId(entries, hook) {
 
 function cssEscape(value) {
     return String(value).replace(/(["\\])/g, "\\$1");
+}
+
+function readRouteEditorPayload(root, editorKey) {
+    const pathEditor = root.querySelector(`[data-route-editor="${cssEscape(editorKey)}"]`);
+    const queryEditor = root.querySelector(`[data-route-query-editor="${cssEscape(editorKey)}"]`);
+    const hashEditor = root.querySelector(`[data-route-hash-editor="${cssEscape(editorKey)}"]`);
+    const path = String(pathEditor?.value || "").trim();
+    if (!path) {
+        throw new Error("Route path cannot be empty.");
+    }
+    const queryText = String(queryEditor?.value || "").trim();
+    let query = {};
+    if (queryText) {
+        try {
+            const parsed = JSON.parse(queryText);
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                throw new Error("Route query must be a JSON object.");
+            }
+            query = parsed;
+        } catch (error) {
+            throw new Error(`Unable to parse route query JSON: ${error.message}`);
+        }
+    }
+    return {
+        hash: String(hashEditor?.value || "").trim(),
+        path,
+        query
+    };
 }

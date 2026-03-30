@@ -56,6 +56,25 @@ app.use(createDevtools({
 }));
 const counterStore = useCounterStore(appStore);
 const instance = app.mount("#app");
+const fakeRouter = createFakeRouter();
+instance.model.$route = {
+    data: {},
+    fullPath: "/counter?page=1",
+    hash: "",
+    matched: [],
+    meta: {},
+    name: "counter",
+    params: {},
+    path: "/counter",
+    query: {
+        page: "1"
+    },
+    router: fakeRouter
+};
+hook.notifyUpdate(app, "manual-refresh", {
+    category: "manual",
+    summary: "Manual refresh after route seed"
+});
 
 assert.ok(instance, "expected mounted NodomX app");
 
@@ -65,6 +84,7 @@ assert.equal(snapshots[0].snapshot.name, "CounterApp");
 assert.equal(snapshots[0].snapshot.rootModule.setup.count, 1);
 assert.equal(snapshots[0].snapshot.store[0].state.total, 10);
 assert.ok(hook.getTimeline().some(item => item.reason === "mount"), "expected mount event in timeline");
+assert.equal(snapshots[0].snapshot.rootModule.route.fullPath, "/counter?page=1");
 
 instance.inc();
 hook.notifyUpdate(app, "manual-refresh");
@@ -78,6 +98,8 @@ assert.ok(document.querySelector("[data-nodomx-devtools]"), "expected overlay ro
 assert.ok(document.querySelector("[data-nodomx-devtools-tree]"), "expected module tree section");
 assert.ok(document.querySelector("[data-nodomx-devtools-timeline]"), "expected timeline section");
 assert.ok(document.querySelector("[data-nodomx-devtools-inspector]"), "expected inspector section");
+assert.ok(document.querySelector('[data-route-editor="module"]'), "expected module route editor");
+assert.ok(document.querySelector('[data-route-query-editor="module"]'), "expected module route query editor");
 
 const pickButton = document.querySelector('[data-action="pick"]');
 assert.ok(pickButton, "expected element picker button");
@@ -113,6 +135,44 @@ hook.applyStorePatch(undefined, "counter", {
 });
 assert.equal(counterStore.total, 18, "expected store patch to update actual store");
 assert.equal(hook.getSnapshot()[0].snapshot.store[0].state.total, 18, "expected store patch to update snapshot");
+
+const moduleRouteEditor = document.querySelector('[data-route-editor="module"]');
+const moduleRouteQueryEditor = document.querySelector('[data-route-query-editor="module"]');
+const moduleRouteHashEditor = document.querySelector('[data-route-hash-editor="module"]');
+assert.ok(moduleRouteEditor, "expected editable module route path");
+assert.ok(moduleRouteQueryEditor, "expected editable module route query");
+assert.ok(moduleRouteHashEditor, "expected editable module route hash");
+moduleRouteEditor.value = "/guide";
+moduleRouteQueryEditor.value = JSON.stringify({
+    tab: "intro",
+    view: "full"
+}, null, 2);
+moduleRouteHashEditor.value = "#hero";
+click('[data-route-action="push"][data-route-editor-target="module"]', dom.window);
+assert.deepEqual(Array.from(fakeRouter.pushCalls), ["/guide?tab=intro&view=full#hero"], "expected route push to serialize path, query, and hash");
+
+click('[data-inspector-tab="app"]', dom.window);
+const appRouteEditor = document.querySelector('[data-route-editor="app"]');
+const appRouteQueryEditor = document.querySelector('[data-route-query-editor="app"]');
+const appRouteHashEditor = document.querySelector('[data-route-hash-editor="app"]');
+assert.ok(appRouteEditor, "expected app route editor");
+appRouteEditor.value = "/home";
+appRouteQueryEditor.value = "{}";
+appRouteHashEditor.value = "";
+click('[data-route-action="replace"][data-route-editor-target="app"]', dom.window);
+assert.deepEqual(Array.from(fakeRouter.replaceCalls), ["/home"], "expected route replace to serialize bare path");
+click('[data-inspector-tab="module"]', dom.window);
+
+click('[data-group-by="reason"]', dom.window);
+const routeReasonGroup = document.querySelector('[data-group-field="reason"][data-group-value="devtools-route-nav"]');
+assert.ok(routeReasonGroup, "expected route navigation reason group");
+routeReasonGroup.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+assert.match(document.querySelector("[data-nodomx-devtools-timeline]").textContent, /devtools-route-nav/i, "expected grouped timeline to show selected reason");
+assert.doesNotMatch(document.querySelector("[data-nodomx-devtools-timeline]").textContent, /devtools-store-patch/i, "expected grouped timeline to hide other reasons");
+
+click('[data-group-by="none"]', dom.window);
+click('[data-action="toggle-module-events"]', dom.window);
+assert.doesNotMatch(document.querySelector("[data-nodomx-devtools-timeline]").textContent, /devtools-store-patch/i, "expected module-only filter to hide store-only events");
 
 const manualRefreshEvent = hook.getTimeline().find(item => item.reason === "manual-refresh");
 assert.ok(manualRefreshEvent, "expected manual refresh event in timeline");
@@ -183,4 +243,23 @@ function findFirstElementNode(renderedDom) {
         }
     }
     return null;
+}
+
+function click(selector, windowRef) {
+    const element = document.querySelector(selector);
+    assert.ok(element, `expected element for selector ${selector}`);
+    element.dispatchEvent(new windowRef.MouseEvent("click", { bubbles: true }));
+}
+
+function createFakeRouter() {
+    return {
+        pushCalls: [],
+        replaceCalls: [],
+        push(path) {
+            this.pushCalls.push(path);
+        },
+        replace(path) {
+            this.replaceCalls.push(path);
+        }
+    };
 }

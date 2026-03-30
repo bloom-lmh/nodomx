@@ -8381,6 +8381,9 @@ class Nodom {
         }
         if (!this["$" + plugin["name"]]) {
             this["$" + plugin["name"]] = Reflect.construct(plugin, params || []);
+            if (plugin["name"] === "Router" && typeof globalThis !== "undefined") {
+                globalThis["__NODOMX_ROUTER__"] = this["$" + plugin["name"]];
+            }
         }
         return this["$" + plugin["name"]];
     }

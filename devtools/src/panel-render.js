@@ -11,11 +11,17 @@ export function renderPanel(entries, current, state, pickerState = {}) {
     const selectedModule = current
         ? findModuleById(current.snapshot.rootModule, current.selectedModuleId) || current.snapshot.rootModule
         : null;
+    const baseTimeline = current
+        ? filterTimeline(current.timeline, state.eventFilter, state.searchQuery, selectedModule?.id, state.selectedModuleOnly)
+        : [];
+    const timelineGroups = current
+        ? groupTimeline(baseTimeline, state.timelineGroupBy)
+        : [];
     const filteredTimeline = current
-        ? filterTimeline(current.timeline, state.eventFilter, state.searchQuery)
+        ? filterTimelineByGroup(baseTimeline, state.timelineGroupBy, state.timelineGroupKey)
         : [];
     const selectedEvent = current
-        ? current.timeline.find(item => item.id === state.selectedEventId) || filteredTimeline[filteredTimeline.length - 1] || null
+        ? filteredTimeline.find(item => item.id === state.selectedEventId) || filteredTimeline[filteredTimeline.length - 1] || null
         : null;
     state.selectedEventId = selectedEvent?.id || null;
     const treeHtml = current
@@ -56,12 +62,14 @@ export function renderPanel(entries, current, state, pickerState = {}) {
                 <select data-devtools-filter style="background:rgba(15,23,42,0.85);color:#e5eef7;border:1px solid rgba(148,163,184,0.22);border-radius:12px;padding:10px 12px;outline:none;">
                     ${renderFilterOptions(state.eventFilter)}
                 </select>
-                <div style="font-size:11px;opacity:.75;">Apps: ${entries.length} / Timeline: ${current?.timeline.length || 0} / Modules: ${current?.snapshot.summary.moduleCount || 0}</div>
+                <button data-action="toggle-module-events" style="${buttonStyle(state.selectedModuleOnly ? "#14b8a6" : "rgba(148,163,184,0.18)", state.selectedModuleOnly ? "#042f2e" : "#e5eef7")}">Only selected module</button>
+                <div style="font-size:11px;opacity:.75;">Apps: ${entries.length} / Timeline: ${current?.timeline.length || 0} / Visible: ${filteredTimeline.length} / Modules: ${current?.snapshot.summary.moduleCount || 0}</div>
             </div>
+            ${current ? renderTimelineSummary(current.timeline, baseTimeline, timelineGroups, state.eventFilter, selectedModule?.id, state.selectedModuleOnly, state.timelineGroupBy, state.timelineGroupKey) : ""}
             <div style="display:flex;gap:8px;flex-wrap:wrap;">${renderInspectorTabs(state.activeTab)}</div>
         </div>
-        <div style="display:grid;grid-template-columns:minmax(280px, 34%) minmax(0, 1fr);height:calc(72vh - 132px);max-height:calc(780px - 132px);">
-            <section data-nodomx-devtools-tree style="border-right:1px solid rgba(148,163,184,0.12);display:grid;grid-template-rows:minmax(0,1fr) 220px;min-height:0;">
+        <div style="display:grid;grid-template-columns:minmax(280px, 34%) minmax(0, 1fr);height:calc(72vh - 160px);max-height:calc(780px - 160px);">
+            <section data-nodomx-devtools-tree style="border-right:1px solid rgba(148,163,184,0.12);display:grid;grid-template-rows:minmax(0,1fr) 260px;min-height:0;">
                 <div style="padding:12px 14px;overflow:auto;min-height:0;">
                     <div style="font-size:11px;opacity:.68;margin-bottom:10px;">Module tree</div>
                     ${treeHtml}
@@ -121,6 +129,7 @@ function renderModuleInspector(current, selectedModule, filteredTimeline) {
                     ${renderKeyValue("Slots", moduleInfo.slotNames.length ? moduleInfo.slotNames.join(", ") : "-")}
                 </div>
             </section>
+            ${moduleInfo.route ? renderRouteEditor("Module route", "module", moduleInfo.route) : ""}
             <section style="${sectionStyle()}">
                 <div style="${sectionTitleStyle()}">Module editors</div>
                 ${renderEditableBlock("Setup", "setup", moduleInfo.setup)}
@@ -158,6 +167,7 @@ function renderAppInspector(current) {
                     ${renderKeyValue("Updated", current.lastUpdatedAt)}
                 </div>
             </section>
+            ${current.snapshot.summary.route ? renderRouteEditor("App route", "app", current.snapshot.summary.route) : ""}
             <section style="${sectionStyle()}">
                 <div style="${sectionTitleStyle()}">App summary</div>
                 ${renderPreviewBlock("Summary", current.snapshot.summary)}
@@ -182,6 +192,33 @@ function renderStoresInspector(stores) {
             ${renderPreviewBlock("Current state", store.state)}
         </section>
     `).join("")}</div>`;
+}
+
+function renderRouteEditor(label, target, route) {
+    return `
+        <section style="${sectionStyle()}">
+            <div style="${sectionTitleStyle()}">${escapeHtml(label)}</div>
+            <div style="font-size:12px;opacity:.82;">Current: ${escapeHtml(route.fullPath || route.path || "/")}</div>
+            <div style="display:grid;gap:8px;">
+                <div style="font-size:11px;opacity:.68;">Path</div>
+                <textarea data-route-editor="${target}" spellcheck="false" style="${editorStyle(80)}">${escapeHtml(route.path || route.fullPath || "/")}</textarea>
+            </div>
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(180px, 30%);gap:10px;">
+                <div style="display:grid;gap:8px;">
+                    <div style="font-size:11px;opacity:.68;">Query JSON</div>
+                    <textarea data-route-query-editor="${target}" spellcheck="false" style="${editorStyle(120)}">${escapeHtml(JSON.stringify(route.query ?? {}, null, 2))}</textarea>
+                </div>
+                <div style="display:grid;gap:8px;">
+                    <div style="font-size:11px;opacity:.68;">Hash</div>
+                    <textarea data-route-hash-editor="${target}" spellcheck="false" style="${editorStyle(120)}">${escapeHtml(route.hash || "")}</textarea>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button data-route-action="push" data-route-editor-target="${target}" style="${buttonStyle("rgba(20,184,166,0.22)", "#ccfbf1")}">Push route</button>
+                <button data-route-action="replace" data-route-editor-target="${target}" style="${buttonStyle("rgba(59,130,246,0.22)", "#dbeafe")}">Replace route</button>
+            </div>
+        </section>
+    `;
 }
 
 function renderModuleTree(rootModule, selectedModuleId, searchQuery) {
@@ -211,7 +248,7 @@ function renderModuleNode(moduleInfo, selectedModuleId, searchQuery, depth) {
         visible: true,
         html: `
             <div style="display:grid;gap:8px;margin-left:${depth * 14}px;">
-                <button data-module-id="${moduleInfo.id}" style="cursor:pointer;border:none;border-radius:12px;padding:10px 12px;background:${active ? "rgba(20,184,166,0.22)" : "rgba(15,23,42,0.85)"};color:${active ? "#ccfbf1" : "#e5eef7"};text-align:left;">
+                <button data-module-id="${moduleInfo.id}" data-selected-module="${active ? "true" : "false"}" style="cursor:pointer;border:none;border-radius:12px;padding:10px 12px;background:${active ? "rgba(20,184,166,0.22)" : "rgba(15,23,42,0.85)"};color:${active ? "#ccfbf1" : "#e5eef7"};text-align:left;">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
                         <strong style="font-size:12px;">${escapeHtml(moduleInfo.name)}</strong>
                         <span style="font-size:10px;opacity:.72;">#${moduleInfo.id}</span>
@@ -234,7 +271,7 @@ function renderTimeline(events, selectedEventId) {
 
 function renderTimelineItem(event, selected = false) {
     return `
-        <button data-event-id="${escapeHtml(event.id)}" data-event-module-id="${escapeHtml(event.moduleId ?? "")}" style="display:grid;gap:4px;width:100%;cursor:pointer;border:none;text-align:left;padding:10px 12px;border-radius:12px;background:${selected ? "rgba(20,184,166,0.22)" : "rgba(15,23,42,0.85)"};color:${selected ? "#ccfbf1" : "#e5eef7"};margin-bottom:8px;">
+        <button data-event-id="${escapeHtml(event.id)}" data-event-module-id="${escapeHtml(event.moduleId ?? "")}" data-selected-event="${selected ? "true" : "false"}" style="display:grid;gap:4px;width:100%;cursor:pointer;border:none;text-align:left;padding:10px 12px;border-radius:12px;background:${selected ? "rgba(20,184,166,0.22)" : "rgba(15,23,42,0.85)"};color:${selected ? "#ccfbf1" : "#e5eef7"};margin-bottom:8px;">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
                 <strong style="font-size:11px;">${escapeHtml(event.summary)}</strong>
                 <span style="font-size:10px;opacity:.68;">${escapeHtml(formatTime(event.at))}</span>
@@ -242,6 +279,41 @@ function renderTimelineItem(event, selected = false) {
             <div style="font-size:10px;opacity:.72;">${escapeHtml(event.category)} / ${escapeHtml(event.reason)}${event.moduleName ? ` / ${escapeHtml(event.moduleName)}` : ""}</div>
             ${event.hookName ? `<div style="font-size:10px;opacity:.72;">Hook: ${escapeHtml(event.hookName)}</div>` : ""}
         </button>
+    `;
+}
+
+function renderTimelineSummary(events, baseTimeline, groups, activeFilter, selectedModuleId, selectedModuleOnly, timelineGroupBy, timelineGroupKey) {
+    const counts = countTimelineEvents(events, selectedModuleId);
+    const activeGroupLabel = timelineGroupBy !== "none" && timelineGroupKey
+        ? `Grouped by ${timelineGroupBy}: ${timelineGroupKey}`
+        : "No timeline grouping";
+    const filters = [
+        ["all", `All (${counts.all})`],
+        ["lifecycle", `Lifecycle (${counts.lifecycle})`],
+        ["render", `Render (${counts.render})`],
+        ["hook", `Hooks (${counts.hook})`],
+        ["manual", `Manual (${counts.manual})`],
+        ["update", `Update (${counts.update})`],
+        ["error", `Error (${counts.error})`]
+    ];
+    return `
+        <div style="display:grid;gap:10px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            ${filters.map(([value, label]) => `<button data-filter-category="${value}" style="${buttonStyle(activeFilter === value ? "#14b8a6" : "rgba(148,163,184,0.18)", activeFilter === value ? "#042f2e" : "#e5eef7")}">${label}</button>`).join(" ")}
+            <span style="font-size:11px;opacity:.72;">Selected module events: ${counts.selectedModule}</span>
+            ${selectedModuleOnly ? '<span style="font-size:11px;opacity:.72;">Module-only filter is active</span>' : ""}
+            <span style="font-size:11px;opacity:.72;">Visible after filter: ${baseTimeline.length}</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                ${renderTimelineGroupingButtons(timelineGroupBy)}
+                <span style="font-size:11px;opacity:.72;">${escapeHtml(activeGroupLabel)}</span>
+            </div>
+            ${groups.length ? `
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    ${groups.map(group => `<button data-group-field="${timelineGroupBy}" data-group-value="${escapeHtml(group.key)}" style="${buttonStyle(timelineGroupBy !== "none" && timelineGroupKey === group.key ? "#14b8a6" : "rgba(148,163,184,0.18)", timelineGroupBy !== "none" && timelineGroupKey === group.key ? "#042f2e" : "#e5eef7")}">${escapeHtml(group.label)} (${group.count})</button>`).join(" ")}
+                </div>
+            ` : ""}
+        </div>
     `;
 }
 
@@ -331,10 +403,13 @@ function renderKeyValue(key, value) {
     return `<div style="display:grid;gap:4px;"><span style="opacity:.68;">${escapeHtml(key)}</span><strong>${escapeHtml(value ?? "-")}</strong></div>`;
 }
 
-function filterTimeline(events, filterValue, searchQuery) {
+function filterTimeline(events, filterValue, searchQuery, selectedModuleId, selectedModuleOnly) {
     const query = String(searchQuery || "").trim().toLowerCase();
     return events.filter(event => {
         if (filterValue !== "all" && event.category !== filterValue) {
+            return false;
+        }
+        if (selectedModuleOnly && selectedModuleId != null && event.moduleId !== selectedModuleId) {
             return false;
         }
         if (!query) {
@@ -351,6 +426,75 @@ function filterTimeline(events, filterValue, searchQuery) {
     });
 }
 
-function editorStyle() {
-    return "min-height:140px;resize:vertical;background:rgba(15,23,42,0.85);color:#e5eef7;border:1px solid rgba(148,163,184,0.18);border-radius:12px;padding:12px;font-size:11px;line-height:1.5;font-family:inherit;outline:none;";
+function filterTimelineByGroup(events, timelineGroupBy, timelineGroupKey) {
+    if (timelineGroupBy === "none" || !timelineGroupKey) {
+        return events;
+    }
+    return events.filter(event => resolveTimelineGroupKey(event, timelineGroupBy) === timelineGroupKey);
+}
+
+function groupTimeline(events, timelineGroupBy) {
+    if (timelineGroupBy === "none") {
+        return [];
+    }
+    const groups = new Map();
+    for (const event of events) {
+        const key = resolveTimelineGroupKey(event, timelineGroupBy);
+        if (!groups.has(key)) {
+            groups.set(key, {
+                count: 0,
+                key,
+                label: key,
+                lastAt: event.at
+            });
+        }
+        const group = groups.get(key);
+        group.count += 1;
+        group.lastAt = event.at;
+    }
+    return Array.from(groups.values())
+        .sort((left, right) => right.count - left.count || String(right.lastAt).localeCompare(String(left.lastAt)))
+        .slice(0, 8);
+}
+
+function resolveTimelineGroupKey(event, timelineGroupBy) {
+    if (timelineGroupBy === "module") {
+        return event.moduleName || event.hotId || "App / global";
+    }
+    return event.reason || "unknown";
+}
+
+function renderTimelineGroupingButtons(activeGroupBy) {
+    const groups = [
+        ["none", "No grouping"],
+        ["reason", "By reason"],
+        ["module", "By module"]
+    ];
+    return groups.map(([value, label]) => `<button data-group-by="${value}" style="${buttonStyle(activeGroupBy === value ? "#14b8a6" : "rgba(148,163,184,0.18)", activeGroupBy === value ? "#042f2e" : "#e5eef7")}">${label}</button>`).join(" ");
+}
+
+function countTimelineEvents(events, selectedModuleId) {
+    const counts = {
+        all: events.length,
+        error: 0,
+        hook: 0,
+        lifecycle: 0,
+        manual: 0,
+        render: 0,
+        selectedModule: 0,
+        update: 0
+    };
+    for (const event of events) {
+        if (event.category in counts) {
+            counts[event.category]++;
+        }
+        if (selectedModuleId != null && event.moduleId === selectedModuleId) {
+            counts.selectedModule++;
+        }
+    }
+    return counts;
+}
+
+function editorStyle(minHeight = 140) {
+    return `min-height:${minHeight}px;resize:vertical;background:rgba(15,23,42,0.85);color:#e5eef7;border:1px solid rgba(148,163,184,0.18);border-radius:12px;padding:12px;font-size:11px;line-height:1.5;font-family:inherit;outline:none;`;
 }
