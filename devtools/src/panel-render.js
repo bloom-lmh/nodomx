@@ -210,6 +210,7 @@ function renderRouteEditor(label, target, route) {
             <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(180px, 30%);gap:10px;">
                 <div style="display:grid;gap:8px;">
                     <div style="font-size:11px;opacity:.68;">Query JSON</div>
+                    ${renderRouteQueryPairs(route.query, target)}
                     <textarea data-route-query-editor="${target}" spellcheck="false" style="${editorStyle(120)}">${escapeHtml(JSON.stringify(route.query ?? {}, null, 2))}</textarea>
                 </div>
                 <div style="display:grid;gap:8px;">
@@ -396,6 +397,10 @@ function renderEventInspector(event, activeTimelineGroup) {
                         ${renderKeyValue("Hot ID", event.hotId || "-")}
                         ${renderKeyValue("Hook", event.hookName || "-")}
                     </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                        ${event.moduleId ? `<button data-event-jump-action="module" data-event-jump-module-id="${escapeHtml(event.moduleId)}" data-event-jump-event-id="${escapeHtml(event.id)}" style="${buttonStyle("rgba(20,184,166,0.22)", "#ccfbf1")}">Jump to module</button>` : ""}
+                        ${event.moduleId ? `<button data-event-jump-action="node" data-event-jump-module-id="${escapeHtml(event.moduleId)}" data-event-jump-event-id="${escapeHtml(event.id)}" style="${buttonStyle("rgba(59,130,246,0.22)", "#dbeafe")}">Highlight node</button>` : ""}
+                    </div>
                 </section>
                 <section style="${sectionStyle()}">
                     <div style="${sectionTitleStyle()}">Payload</div>
@@ -538,17 +543,61 @@ function renderTimelineGroupDetails(group) {
             <div style="display:grid;gap:8px;">
                 <div style="font-size:11px;opacity:.68;">Recent events in this group</div>
                 ${group.events.length
-                    ? group.events.map(item => `<div style="padding:8px 10px;border-radius:10px;background:rgba(15,23,42,0.85);font-size:11px;">
-                        <div style="display:flex;justify-content:space-between;gap:8px;">
-                            <strong>${escapeHtml(item.summary)}</strong>
-                            <span style="opacity:.68;">${escapeHtml(formatTime(item.at))}</span>
+                    ? group.events.map(item => `<div style="padding:8px 10px;border-radius:10px;background:rgba(15,23,42,0.85);font-size:11px;display:grid;gap:8px;">
+                        <button data-group-event-id="${escapeHtml(item.id)}" data-group-event-module-id="${escapeHtml(item.moduleId ?? "")}" style="cursor:pointer;border:none;background:transparent;color:inherit;padding:0;text-align:left;">
+                            <div style="display:flex;justify-content:space-between;gap:8px;">
+                                <strong>${escapeHtml(item.summary)}</strong>
+                                <span style="opacity:.68;">${escapeHtml(formatTime(item.at))}</span>
+                            </div>
+                            <div style="margin-top:4px;opacity:.72;">${escapeHtml(item.moduleName || "App / global")} / ${escapeHtml(item.reason)}</div>
+                        </button>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            ${item.moduleId ? `<button data-event-jump-action="module" data-event-jump-module-id="${escapeHtml(item.moduleId)}" data-event-jump-event-id="${escapeHtml(item.id)}" style="${buttonStyle("rgba(20,184,166,0.22)", "#ccfbf1")}">Jump to module</button>` : ""}
+                            ${item.moduleId ? `<button data-event-jump-action="node" data-event-jump-module-id="${escapeHtml(item.moduleId)}" data-event-jump-event-id="${escapeHtml(item.id)}" style="${buttonStyle("rgba(59,130,246,0.22)", "#dbeafe")}">Highlight node</button>` : ""}
                         </div>
-                        <div style="margin-top:4px;opacity:.72;">${escapeHtml(item.moduleName || "App / global")} / ${escapeHtml(item.reason)}</div>
                     </div>`).join("")
                     : '<div style="opacity:.7;font-size:12px;">No events available for the current group.</div>'}
             </div>
         </section>
     `;
+}
+
+function renderRouteQueryPairs(query, target) {
+    const entries = Object.entries(query || {});
+    const rows = entries.length ? entries : [["", ""]];
+    return `
+        <div data-route-query-list="${target}" style="display:grid;gap:8px;">
+            ${rows.map(([key, value], index) => renderRouteQueryRow(target, index, key, value)).join("")}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button data-route-query-action="add" data-route-query-target="${target}" style="${buttonStyle("rgba(20,184,166,0.22)", "#ccfbf1")}">Add query pair</button>
+            <button data-route-query-action="sync" data-route-query-target="${target}" style="${buttonStyle("rgba(148,163,184,0.18)", "#e5eef7")}">Sync from rows</button>
+        </div>
+    `;
+}
+
+function renderRouteQueryRow(target, index, key, value) {
+    return `
+        <div data-route-query-row="${target}" style="display:grid;grid-template-columns:minmax(120px,0.4fr) minmax(0,1fr) auto;gap:8px;align-items:center;">
+            <input data-route-query-key="${target}" data-route-query-index="${index}" value="${escapeHtml(String(key ?? ""))}" placeholder="query key" style="${inlineInputStyle()}" />
+            <input data-route-query-value="${target}" data-route-query-index="${index}" value="${escapeHtml(stringifyRouteQueryValue(value))}" placeholder="query value" style="${inlineInputStyle()}" />
+            <button data-route-query-action="remove" data-route-query-target="${target}" data-route-query-index="${index}" style="${buttonStyle("rgba(248,113,113,0.18)", "#fee2e2")}">Remove</button>
+        </div>
+    `;
+}
+
+function stringifyRouteQueryValue(value) {
+    if (Array.isArray(value)) {
+        return JSON.stringify(value);
+    }
+    if (value && typeof value === "object") {
+        return JSON.stringify(value);
+    }
+    return value == null ? "" : String(value);
+}
+
+function inlineInputStyle() {
+    return "background:rgba(15,23,42,0.85);color:#e5eef7;border:1px solid rgba(148,163,184,0.18);border-radius:10px;padding:8px 10px;font-size:11px;line-height:1.5;font-family:inherit;outline:none;";
 }
 
 function renderRouteSnapshot(route) {
@@ -561,8 +610,8 @@ function renderRouteSnapshot(route) {
                 <span style="padding:2px 8px;border-radius:999px;background:rgba(59,130,246,0.18);">query keys: ${queryEntries.length}</span>
                 <span style="padding:2px 8px;border-radius:999px;background:rgba(249,115,22,0.18);">params: ${paramEntries.length}</span>
             </div>
-            ${queryEntries.length ? `<div style="font-size:11px;opacity:.78;">Query: ${escapeHtml(queryEntries.map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : value}`).join(" ¡¤ "))}</div>` : ""}
-            ${paramEntries.length ? `<div style="font-size:11px;opacity:.78;">Params: ${escapeHtml(paramEntries.map(([key, value]) => `${key}=${value}`).join(" ¡¤ "))}</div>` : ""}
+            ${queryEntries.length ? `<div style="font-size:11px;opacity:.78;">Query: ${escapeHtml(queryEntries.map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : value}`).join(" ï¿½ï¿½ "))}</div>` : ""}
+            ${paramEntries.length ? `<div style="font-size:11px;opacity:.78;">Params: ${escapeHtml(paramEntries.map(([key, value]) => `${key}=${value}`).join(" ï¿½ï¿½ "))}</div>` : ""}
         </div>
     `;
 }

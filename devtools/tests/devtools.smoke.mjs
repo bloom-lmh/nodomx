@@ -139,15 +139,27 @@ assert.equal(hook.getSnapshot()[0].snapshot.store[0].state.total, 18, "expected 
 const moduleRouteEditor = document.querySelector('[data-route-editor="module"]');
 const moduleRouteQueryEditor = document.querySelector('[data-route-query-editor="module"]');
 const moduleRouteHashEditor = document.querySelector('[data-route-hash-editor="module"]');
+const moduleRouteQueryList = document.querySelector('[data-route-query-list="module"]');
 assert.ok(moduleRouteEditor, "expected editable module route path");
 assert.ok(moduleRouteQueryEditor, "expected editable module route query");
 assert.ok(moduleRouteHashEditor, "expected editable module route hash");
+assert.ok(moduleRouteQueryList, "expected visual route query editor");
 moduleRouteEditor.value = "/guide";
-moduleRouteQueryEditor.value = JSON.stringify({
-    tab: "intro",
-    view: "full"
-}, null, 2);
 moduleRouteHashEditor.value = "#hero";
+click('[data-route-query-action="remove"][data-route-query-target="module"]', dom.window);
+fillInput('[data-route-query-key="module"]', "tab", dom.window);
+fillInput('[data-route-query-value="module"]', "intro", dom.window);
+click('[data-route-query-action="add"][data-route-query-target="module"]', dom.window);
+const routeQueryKeys = document.querySelectorAll('[data-route-query-key="module"]');
+const routeQueryValues = document.querySelectorAll('[data-route-query-value="module"]');
+assert.equal(routeQueryKeys.length, 2, "expected added query row");
+routeQueryKeys[1].value = "view";
+routeQueryKeys[1].dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+routeQueryValues[1].value = "full";
+routeQueryValues[1].dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+click('[data-route-query-action="sync"][data-route-query-target="module"]', dom.window);
+assert.match(moduleRouteQueryEditor.value, /"tab":\s*"intro"/, "expected synced query JSON to include tab");
+assert.match(moduleRouteQueryEditor.value, /"view":\s*"full"/, "expected synced query JSON to include view");
 click('[data-route-action="push"][data-route-editor-target="module"]', dom.window);
 assert.deepEqual(Array.from(fakeRouter.pushCalls), ["/guide?tab=intro&view=full#hero"], "expected route push to serialize path, query, and hash");
 
@@ -172,6 +184,15 @@ assert.doesNotMatch(document.querySelector("[data-nodomx-devtools-timeline]").te
 click('[data-inspector-tab="events"]', dom.window);
 assert.match(document.querySelector("[data-nodomx-devtools-inspector]").textContent, /Active timeline group/i, "expected grouped timeline details in inspector");
 assert.match(document.querySelector("[data-nodomx-devtools-inspector]").textContent, /devtools-route-nav/i, "expected selected group key in inspector");
+const groupedEventButton = document.querySelector("[data-group-event-id]");
+assert.ok(groupedEventButton, "expected grouped event item");
+groupedEventButton.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+assert.match(document.querySelector("[data-nodomx-devtools-inspector]").textContent, /Event details/i, "expected grouped event to switch inspector");
+hook.clearHighlight();
+const highlightNodeButton = document.querySelector('[data-event-jump-action="node"]');
+assert.ok(highlightNodeButton, "expected highlight node button for grouped event");
+highlightNodeButton.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+assert.ok(document.querySelector("[data-nodomx-devtools-highlight]"), "expected grouped event highlight to resolve DOM node");
 
 click('[data-group-by="none"]', dom.window);
 click('[data-action="toggle-module-events"]', dom.window);
@@ -181,6 +202,9 @@ hook.openOverlay();
 assert.match(document.querySelector("[data-nodomx-devtools-inspector]").textContent, /Event details/i, "expected persisted inspector tab after reopening");
 assert.match(document.querySelector("[data-action=\"toggle-module-events\"]").textContent, /Only selected module/i, "expected module filter button after reopening");
 assert.match(document.querySelector("[data-nodomx-devtools]").textContent, /Module-only filter is active/i, "expected persisted module-only filter notice");
+hook.clearHighlight();
+click(`[data-module-id="${instance.id}"]`, dom.window);
+assert.ok(document.querySelector("[data-nodomx-devtools-highlight]"), "expected module selection to auto-highlight DOM node");
 
 const manualRefreshEvent = hook.getTimeline().find(item => item.reason === "manual-refresh");
 assert.ok(manualRefreshEvent, "expected manual refresh event in timeline");
@@ -257,6 +281,13 @@ function click(selector, windowRef) {
     const element = document.querySelector(selector);
     assert.ok(element, `expected element for selector ${selector}`);
     element.dispatchEvent(new windowRef.MouseEvent("click", { bubbles: true }));
+}
+
+function fillInput(selector, value, windowRef) {
+    const element = document.querySelector(selector);
+    assert.ok(element, `expected element for selector ${selector}`);
+    element.value = value;
+    element.dispatchEvent(new windowRef.Event("input", { bubbles: true }));
 }
 
 function createFakeRouter() {

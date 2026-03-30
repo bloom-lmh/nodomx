@@ -326,6 +326,9 @@ export function createHook(globalTarget, options = {}) {
                 entry.selectedModuleId = entry.snapshot.rootModule?.id ?? null;
             }
             renderOverlay();
+            if (entry?.selectedModuleId != null) {
+                this.highlightSelection(entry.id, entry.selectedModuleId);
+            }
         },
         selectModule(appId, moduleId) {
             const entry = resolveEntry(appId);
@@ -336,6 +339,7 @@ export function createHook(globalTarget, options = {}) {
             selectedAppId = entry.id;
             hook.__selectedAppId = entry.id;
             renderOverlay();
+            this.highlightSelection(entry.id, moduleId);
         },
         openOverlay() {
             if (!globalTarget?.document) {

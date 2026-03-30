@@ -150,6 +150,44 @@ function bindOverlayEvents(root, hook, state, entries) {
             rerender();
         });
     }
+    for (const button of root.querySelectorAll("[data-group-event-id]")) {
+        button.addEventListener("click", () => {
+            state.selectedEventId = button.getAttribute("data-group-event-id");
+            state.activeTab = "events";
+            const moduleId = Number(button.getAttribute("data-group-event-module-id"));
+            if (current && Number.isFinite(moduleId) && moduleId > 0) {
+                hook.selectModule(current.id, moduleId);
+                return;
+            }
+            rerender();
+        });
+    }
+    for (const button of root.querySelectorAll("[data-event-jump-action]")) {
+        button.addEventListener("click", () => {
+            if (!current) {
+                return;
+            }
+            const eventId = button.getAttribute("data-event-jump-event-id");
+            const moduleId = Number(button.getAttribute("data-event-jump-module-id"));
+            if (!Number.isFinite(moduleId) || moduleId <= 0) {
+                setNotice("error", "This event does not point to a concrete module node.");
+                return;
+            }
+            state.selectedEventId = eventId;
+            state.activeTab = "events";
+            if (button.getAttribute("data-event-jump-action") === "node") {
+                const result = hook.highlightSelection(current.id, moduleId);
+                if (!result) {
+                    setNotice("error", "Unable to resolve a DOM node for the selected event.");
+                    return;
+                }
+                hook.selectModule(current.id, moduleId);
+                setNotice("success", `Highlighted <${result.targetTag}> for module #${moduleId}.`);
+                return;
+            }
+            hook.selectModule(current.id, moduleId);
+        });
+    }
     root.querySelector("[data-devtools-search]")?.addEventListener("input", event => {
         state.searchQuery = event.target.value || "";
         rerender();
@@ -246,6 +284,7 @@ function bindOverlayEvents(root, hook, state, entries) {
             }
         });
     }
+    bindRouteQueryEditors(root, rerender);
 
     scrollSelections(root);
 
@@ -313,6 +352,127 @@ function readRouteEditorPayload(root, editorKey) {
         path,
         query
     };
+}
+
+function bindRouteQueryEditors(root, rerender) {
+    for (const button of root.querySelectorAll("[data-route-query-action]")) {
+        button.addEventListener("click", () => {
+            const target = button.getAttribute("data-route-query-target");
+            if (!target) {
+                return;
+            }
+            if (button.getAttribute("data-route-query-action") === "add") {
+                appendRouteQueryRow(root, target);
+                syncRouteQueryEditor(root, target);
+                return;
+            }
+            if (button.getAttribute("data-route-query-action") === "remove") {
+                const row = button.closest(`[data-route-query-row="${cssEscape(target)}"]`);
+                row?.remove();
+                if (!root.querySelector(`[data-route-query-row="${cssEscape(target)}"]`)) {
+                    appendRouteQueryRow(root, target);
+                }
+                syncRouteQueryEditor(root, target);
+                return;
+            }
+            if (button.getAttribute("data-route-query-action") === "sync") {
+                syncRouteQueryEditor(root, target);
+                return;
+            }
+            rerender();
+        });
+    }
+    for (const input of root.querySelectorAll("[data-route-query-key],[data-route-query-value]")) {
+        input.addEventListener("input", () => {
+            const target = input.getAttribute("data-route-query-key") || input.getAttribute("data-route-query-value");
+            if (!target) {
+                return;
+            }
+            syncRouteQueryEditor(root, target, false);
+        });
+    }
+}
+
+function appendRouteQueryRow(root, target) {
+    const list = root.querySelector(`[data-route-query-list="${cssEscape(target)}"]`);
+    if (!list) {
+        return;
+    }
+    const row = root.ownerDocument.createElement("div");
+    row.setAttribute("data-route-query-row", target);
+    Object.assign(row.style, {
+        alignItems: "center",
+        display: "grid",
+        gap: "8px",
+        gridTemplateColumns: "minmax(120px,0.4fr) minmax(0,1fr) auto"
+    });
+    row.innerHTML = `
+        <input data-route-query-key="${target}" data-route-query-index="${list.children.length}" value="" placeholder="query key" style="background:rgba(15,23,42,0.85);color:#e5eef7;border:1px solid rgba(148,163,184,0.18);border-radius:10px;padding:8px 10px;font-size:11px;line-height:1.5;font-family:inherit;outline:none;" />
+        <input data-route-query-value="${target}" data-route-query-index="${list.children.length}" value="" placeholder="query value" style="background:rgba(15,23,42,0.85);color:#e5eef7;border:1px solid rgba(148,163,184,0.18);border-radius:10px;padding:8px 10px;font-size:11px;line-height:1.5;font-family:inherit;outline:none;" />
+        <button data-route-query-action="remove" data-route-query-target="${target}" data-route-query-index="${list.children.length}" style="cursor:pointer;border:none;border-radius:999px;padding:6px 10px;background:rgba(248,113,113,0.18);color:#fee2e2;">Remove</button>
+    `;
+    list.appendChild(row);
+    for (const input of row.querySelectorAll("[data-route-query-key],[data-route-query-value]")) {
+        input.addEventListener("input", () => syncRouteQueryEditor(root, target, false));
+    }
+    row.querySelector("[data-route-query-action=\"remove\"]")?.addEventListener("click", () => {
+        row.remove();
+        if (!root.querySelector(`[data-route-query-row="${cssEscape(target)}"]`)) {
+            appendRouteQueryRow(root, target);
+        }
+        syncRouteQueryEditor(root, target);
+    });
+}
+
+function syncRouteQueryEditor(root, target, pretty = true) {
+    const editor = root.querySelector(`[data-route-query-editor="${cssEscape(target)}"]`);
+    if (!editor) {
+        return;
+    }
+    const nextQuery = readRouteQueryRows(root, target);
+    editor.value = JSON.stringify(nextQuery, null, pretty ? 2 : 0);
+}
+
+function readRouteQueryRows(root, target) {
+    const rows = root.querySelectorAll(`[data-route-query-row="${cssEscape(target)}"]`);
+    const query = {};
+    for (const row of rows) {
+        const key = String(row.querySelector(`[data-route-query-key="${cssEscape(target)}"]`)?.value || "").trim();
+        const rawValue = String(row.querySelector(`[data-route-query-value="${cssEscape(target)}"]`)?.value || "").trim();
+        if (!key) {
+            continue;
+        }
+        const value = parseRouteQueryValue(rawValue);
+        if (Object.prototype.hasOwnProperty.call(query, key)) {
+            const current = query[key];
+            query[key] = Array.isArray(current)
+                ? current.concat([value])
+                : [current, value];
+            continue;
+        }
+        query[key] = value;
+    }
+    return query;
+}
+
+function parseRouteQueryValue(value) {
+    if (!value) {
+        return "";
+    }
+    if (/^(true|false|null)$/i.test(value)) {
+        return JSON.parse(value.toLowerCase());
+    }
+    if (/^-?\d+(\.\d+)?$/.test(value)) {
+        return Number(value);
+    }
+    if ((value.startsWith("{") && value.endsWith("}")) || (value.startsWith("[") && value.endsWith("]"))) {
+        try {
+            return JSON.parse(value);
+        } catch {
+            return value;
+        }
+    }
+    return value;
 }
 
 function hydrateState(globalTarget, state) {
