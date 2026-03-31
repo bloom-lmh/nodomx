@@ -2431,7 +2431,7 @@ function visitSurfaceNodes(sourceFile, visit) {
 
 function resolveDefineModelName(node) {
     const firstArg = node.arguments?.[0];
-    return ts.isStringLiteralLike(firstArg) ? firstArg.text.trim() : "";
+    return firstArg && ts.isStringLiteralLike(firstArg) ? firstArg.text.trim() : "";
 }
 
 function collectScriptBindingHints(sourceFile, localTypes, surface) {

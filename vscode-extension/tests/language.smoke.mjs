@@ -271,13 +271,29 @@ await fs.writeFile(childContractFile, `
   </article>
 </template>
 
-<script setup>
-const props = withDefaults(defineProps(), {});
-defineEmits(["submit", "refresh", "update:modelValue"]);
-defineSlots({
-  aside: true
-});
-defineModel();
+<script setup lang="ts">
+type Props = {
+  title: string;
+  tone?: "info" | "warn";
+};
+
+type Emits = {
+  (event: "submit", payload: number): void;
+  (event: "refresh"): void;
+  (event: "update:modelValue", value: string): void;
+};
+
+type Slots = {
+  default?: () => unknown;
+  header?: () => unknown;
+  footer?: () => unknown;
+  aside?: (props: { collapsed: boolean }) => unknown;
+};
+
+const props = withDefaults(defineProps<Props>(), {});
+defineEmits<Emits>();
+defineSlots<Slots>();
+defineModel<string>();
 
 const title = props.title;
 const tone = props.tone;
@@ -337,6 +353,10 @@ assert.ok(contractAttrCompletions.some(item => item.label === "model-value"));
 assert.ok(contractAttrCompletions.some(item => item.label === "on-submit"));
 assert.ok(contractAttrCompletions.some(item => item.label === "on-refresh"));
 assert.ok(contractAttrCompletions.some(item => item.label === "on:update:model-value"));
+assert.match(contractAttrCompletions.find(item => item.label === "title")?.detail || "", /string/);
+assert.match(contractAttrCompletions.find(item => item.label === "title")?.detail || "", /required/);
+assert.match(contractAttrCompletions.find(item => item.label === "tone")?.detail || "", /info/);
+assert.match(contractAttrCompletions.find(item => item.label === "on-submit")?.detail || "", /payload: number/);
 
 const contractHoverOffset = contractDocument.getText().indexOf("<ContractChild") + 2;
 const contractHover = getNdHover(contractDocument, contractDocument.positionAt(contractHoverOffset));
@@ -345,14 +365,19 @@ assert.match(contractHover.contents.value, /\*\*Props\*\*/);
 assert.match(contractHover.contents.value, /`title`/);
 assert.match(contractHover.contents.value, /`tone`/);
 assert.match(contractHover.contents.value, /`modelValue`/);
+assert.match(contractHover.contents.value, /type: `string`/);
+assert.match(contractHover.contents.value, /type: `"info" \| "warn"`/);
+assert.match(contractHover.contents.value, /required/);
 assert.match(contractHover.contents.value, /\*\*Emits\*\*/);
 assert.match(contractHover.contents.value, /`submit`/);
 assert.match(contractHover.contents.value, /`refresh`/);
 assert.match(contractHover.contents.value, /`update:modelValue`/);
+assert.match(contractHover.contents.value, /type: `\(payload: number\) => void`/);
 assert.match(contractHover.contents.value, /\*\*Slots\*\*/);
 assert.match(contractHover.contents.value, /`header`/);
 assert.match(contractHover.contents.value, /`footer`/);
 assert.match(contractHover.contents.value, /`aside`/);
+assert.match(contractHover.contents.value, /collapsed: boolean/);
 
 const contractPropDefinition = getNdDefinition(
     contractDocument,
@@ -403,6 +428,8 @@ const contractPropHover = getNdHover(
 assert.ok(contractPropHover);
 assert.match(contractPropHover.contents.value, /Prop `title`/);
 assert.match(contractPropHover.contents.value, /ContractChild/);
+assert.match(contractPropHover.contents.value, /Type: `string`/);
+assert.match(contractPropHover.contents.value, /Required/);
 
 const contractEventHover = getNdHover(
     contractDocument,
@@ -411,6 +438,7 @@ const contractEventHover = getNdHover(
 assert.ok(contractEventHover);
 assert.match(contractEventHover.contents.value, /Event `submit`/);
 assert.match(contractEventHover.contents.value, /ContractChild/);
+assert.match(contractEventHover.contents.value, /Type: `\(payload: number\) => void`/);
 
 const contractSlotHover = getNdHover(
     contractDocument,
@@ -496,9 +524,9 @@ assert.ok(contractDeclareActions.some(item => /Remove unknown named slot `myster
 const declareAllContractAction = contractDeclareActions.find(item => /Declare all current unknown contract entries in `ContractChild`/.test(item.title));
 assert.ok(declareAllContractAction);
 const declareAllContractEdits = declareAllContractAction.edit?.documentChanges?.find(item => item.textDocument?.uri === pathToFileURL(childContractFile).href)?.edits || [];
-assert.ok(declareAllContractEdits.some(edit => /extra: null/.test(edit.newText)));
-assert.ok(declareAllContractEdits.some(edit => /"cancel"/.test(edit.newText)));
-assert.ok(declareAllContractEdits.some(edit => /mystery: true/.test(edit.newText)));
+assert.ok(declareAllContractEdits.some(edit => /extra\?: unknown;/.test(edit.newText)));
+assert.ok(declareAllContractEdits.some(edit => /\(event: "cancel"\): void;/.test(edit.newText)));
+assert.ok(declareAllContractEdits.some(edit => /mystery\?: \(\) => unknown;/.test(edit.newText)));
 const removeAllUnknownUsageAction = contractDeclareActions.find(item => /Remove all unknown usage from `ContractChild`/.test(item.title));
 assert.ok(removeAllUnknownUsageAction);
 const removeAllUnknownUsageEdits = removeAllUnknownUsageAction.edit?.changes?.[contractDocument.uri] || [];
@@ -513,24 +541,24 @@ const contractNodeActions = getNdCodeActions(contractDocument, {}, contractNodeR
 const syncChildContractAction = contractNodeActions.find(item => /Sync `ContractChild` child contract from current usage/.test(item.title));
 assert.ok(syncChildContractAction);
 const syncChildContractEdits = syncChildContractAction.edit?.documentChanges?.find(item => item.textDocument?.uri === pathToFileURL(childContractFile).href)?.edits || [];
-assert.ok(syncChildContractEdits.some(edit => /extra: null/.test(edit.newText)));
-assert.ok(syncChildContractEdits.some(edit => /"cancel"/.test(edit.newText)));
-assert.ok(syncChildContractEdits.some(edit => /mystery: true/.test(edit.newText)));
+assert.ok(syncChildContractEdits.some(edit => /extra\?: unknown;/.test(edit.newText)));
+assert.ok(syncChildContractEdits.some(edit => /\(event: "cancel"\): void;/.test(edit.newText)));
+assert.ok(syncChildContractEdits.some(edit => /mystery\?: \(\) => unknown;/.test(edit.newText)));
 const syncChildPropsAction = contractNodeActions.find(item => /Sync `ContractChild` child props from current usage/.test(item.title));
 assert.ok(syncChildPropsAction);
 const syncChildPropsEdits = syncChildPropsAction.edit?.documentChanges?.find(item => item.textDocument?.uri === pathToFileURL(childContractFile).href)?.edits || [];
-assert.ok(syncChildPropsEdits.some(edit => /extra: null/.test(edit.newText)));
-assert.ok(syncChildPropsEdits.every(edit => !/"cancel"/.test(edit.newText)));
+assert.ok(syncChildPropsEdits.some(edit => /extra\?: unknown;/.test(edit.newText)));
+assert.ok(syncChildPropsEdits.every(edit => !/\(event: "cancel"\): void;/.test(edit.newText)));
 const syncChildEventsAction = contractNodeActions.find(item => /Sync `ContractChild` child emits from current usage/.test(item.title));
 assert.ok(syncChildEventsAction);
 const syncChildEventsEdits = syncChildEventsAction.edit?.documentChanges?.find(item => item.textDocument?.uri === pathToFileURL(childContractFile).href)?.edits || [];
-assert.ok(syncChildEventsEdits.some(edit => /"cancel"/.test(edit.newText)));
-assert.ok(syncChildEventsEdits.every(edit => !/mystery: true/.test(edit.newText)));
+assert.ok(syncChildEventsEdits.some(edit => /\(event: "cancel"\): void;/.test(edit.newText)));
+assert.ok(syncChildEventsEdits.every(edit => !/mystery\?: \(\) => unknown;/.test(edit.newText)));
 const syncChildSlotsAction = contractNodeActions.find(item => /Sync `ContractChild` child slots from current usage/.test(item.title));
 assert.ok(syncChildSlotsAction);
 const syncChildSlotsEdits = syncChildSlotsAction.edit?.documentChanges?.find(item => item.textDocument?.uri === pathToFileURL(childContractFile).href)?.edits || [];
-assert.ok(syncChildSlotsEdits.some(edit => /mystery: true/.test(edit.newText)));
-assert.ok(syncChildSlotsEdits.every(edit => !/extra: null/.test(edit.newText)));
+assert.ok(syncChildSlotsEdits.some(edit => /mystery\?: \(\) => unknown;/.test(edit.newText)));
+assert.ok(syncChildSlotsEdits.every(edit => !/extra\?: unknown;/.test(edit.newText)));
 const pruneContractAction = contractNodeActions.find(item => /Prune `ContractChild` usage to component contract/.test(item.title));
 assert.ok(pruneContractAction);
 const pruneContractEdits = pruneContractAction.edit?.changes?.[contractDocument.uri] || [];

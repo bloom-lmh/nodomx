@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { extractNdTypeSurface } from "@nodomx/nd-compiler";
 
 const BLOCK_RE = /<(template|script|style)(\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
 const IDENTIFIER_RE = /[A-Za-z_$][\w$]*/g;
@@ -627,12 +628,13 @@ export function analyzeNdDocument(document) {
     const diagnostics = [
         ...descriptor.errors,
         ...collectReferenceDiagnostics(document, descriptor, scriptAnalysis, templateAnalysis),
-        ...templateAnalysis.diagnostics
+        ...templateAnalysis.diagnostics,
+        ...collectCompilerTemplateDiagnostics(document, text)
     ];
 
     return {
         descriptor,
-        diagnostics,
+        diagnostics: dedupeDiagnostics(diagnostics),
         scriptAnalysis,
         templateAnalysis
     };
@@ -654,6 +656,12 @@ function buildComponentContractFromDescriptor(descriptor, document = createTextB
     if (descriptor?.template) {
         collectTemplateSlotContract(document, descriptor.template, contract);
     }
+    const source = typeof document?.getText === "function" ? document.getText() : "";
+    mergeComponentContractTypeSurface(contract, readCompilerTypeSurface(source, {
+        componentContractCheck: false,
+        uri: descriptor?.uri || document?.uri || "anonymous.nd"
+    }));
+    hydrateMissingComponentContractRanges(contract, descriptor, document);
     return contract;
 }
 
@@ -914,24 +922,60 @@ function recordContractEntry(targetMap, name, normalizer, source, metadata = {})
     }
     const label = String(name || "").trim();
     if (targetMap.has(normalized)) {
+        const existing = targetMap.get(normalized);
+        if (!existing.range && metadata.range) {
+            existing.range = metadata.range;
+        }
+        if (!existing.uri && metadata.uri) {
+            existing.uri = metadata.uri;
+        }
+        if (!existing.typeText && metadata.typeText) {
+            existing.typeText = metadata.typeText;
+        }
+        if (existing.optional !== false && metadata.optional === false) {
+            existing.optional = false;
+        }
+        if (!existing.source && source) {
+            existing.source = source;
+        }
         return;
     }
     targetMap.set(normalized, {
         label,
         normalized,
+        optional: metadata.optional !== false,
         range: metadata.range || null,
-        source
-        ,
+        source,
+        typeText: metadata.typeText || "",
         uri: metadata.uri || null
     });
 }
 
 function findMacroCalls(source, calleeName) {
     const calls = [];
-    const pattern = new RegExp(`\\b${calleeName}\\s*\\(`, "g");
+    const pattern = new RegExp(`\\b${calleeName}\\b`, "g");
     for (const match of source.matchAll(pattern)) {
         const callStart = match.index || 0;
-        const openParen = source.indexOf("(", callStart);
+        let cursor = callStart + match[0].length;
+        while (/\s/.test(source[cursor] || "")) {
+            cursor += 1;
+        }
+        let typeArgumentsStart = -1;
+        let typeArgumentsEnd = -1;
+        let typeArgumentsText = "";
+        if (source[cursor] === "<") {
+            typeArgumentsStart = cursor + 1;
+            typeArgumentsEnd = findMatchingAngleBracket(source, cursor);
+            if (typeArgumentsEnd < 0) {
+                continue;
+            }
+            typeArgumentsText = source.slice(typeArgumentsStart, typeArgumentsEnd);
+            cursor = typeArgumentsEnd + 1;
+            while (/\s/.test(source[cursor] || "")) {
+                cursor += 1;
+            }
+        }
+        const openParen = source[cursor] === "(" ? cursor : -1;
         if (openParen < 0) {
             continue;
         }
@@ -943,7 +987,10 @@ function findMacroCalls(source, calleeName) {
             argumentsText: source.slice(openParen + 1, closeParen),
             end: closeParen + 1,
             openParen,
-            start: callStart
+            start: callStart,
+            typeArgumentsEnd,
+            typeArgumentsStart,
+            typeArgumentsText
         });
     }
     return calls;
@@ -1051,6 +1098,185 @@ function readNdComponentContract(targetUri) {
     }
 }
 
+function collectCompilerTemplateDiagnostics(document, text) {
+    const typeSurface = readCompilerTypeSurface(text, {
+        componentContractCheck: true,
+        uri: document.uri
+    });
+    const diagnostics = Array.isArray(typeSurface?.templateDiagnostics)
+        ? typeSurface.templateDiagnostics
+        : [];
+    return diagnostics
+        .filter(item => !shouldSkipCompilerTemplateDiagnostic(item))
+        .map(item => {
+            const offset = Number.isFinite(item.offset) ? item.offset : 0;
+            return {
+                message: item.message,
+                range: rangeFromOffsets(document, offset, Math.max(offset, offset + 1)),
+                severity: "error",
+                source: "nd-compiler"
+            };
+        });
+}
+
+function shouldSkipCompilerTemplateDiagnostic(diagnostic) {
+    const message = String(diagnostic?.message || "");
+    return /^Unknown prop `/.test(message)
+        || /^Unknown emitted event handler `/.test(message)
+        || /^Unknown named slot `/.test(message);
+}
+
+function readCompilerTypeSurface(source, options = {}) {
+    if (!String(source || "").trim()) {
+        return null;
+    }
+    try {
+        return extractNdTypeSurface(source, {
+            componentContractCheck: options.componentContractCheck !== false,
+            filename: resolveCompilerSurfaceFilename(options.uri),
+            templateTypeCheck: false
+        });
+    } catch {
+        return null;
+    }
+}
+
+function resolveCompilerSurfaceFilename(uri) {
+    if (typeof uri === "string" && /^file:\/\//.test(uri)) {
+        try {
+            return fileURLToPath(uri);
+        } catch {
+            return uri;
+        }
+    }
+    return String(uri || "anonymous.nd");
+}
+
+function mergeComponentContractTypeSurface(contract, typeSurface) {
+    if (!contract || !typeSurface) {
+        return contract;
+    }
+    for (const entry of typeSurface.props || []) {
+        recordPropContractName(contract, entry.name, entry.source || "nd-compiler", {
+            optional: entry.optional,
+            typeText: entry.typeText || ""
+        });
+    }
+    for (const entry of typeSurface.emits || []) {
+        recordEmitContractName(contract, entry.name, entry.source || "nd-compiler", {
+            optional: entry.optional,
+            typeText: entry.typeText || ""
+        });
+    }
+    for (const entry of typeSurface.slots || []) {
+        recordSlotContractName(contract, entry.name, entry.source || "nd-compiler", {
+            optional: entry.optional,
+            typeText: entry.typeText || ""
+        });
+    }
+    return contract;
+}
+
+function hydrateMissingComponentContractRanges(contract, descriptor, document) {
+    if (!contract || !descriptor || typeof document?.getText !== "function") {
+        return contract;
+    }
+    for (const entry of contract.props.values()) {
+        hydrateComponentContractEntryRange(entry, "prop", descriptor, document);
+    }
+    for (const entry of contract.emits.values()) {
+        hydrateComponentContractEntryRange(entry, "event", descriptor, document);
+    }
+    for (const entry of contract.slots.values()) {
+        hydrateComponentContractEntryRange(entry, "slot", descriptor, document);
+    }
+    return contract;
+}
+
+function hydrateComponentContractEntryRange(entry, kind, descriptor, document) {
+    if (!entry || entry.range) {
+        return;
+    }
+    const fallbackRange = findFallbackComponentContractEntryRange(entry, kind, descriptor, document);
+    if (!fallbackRange) {
+        return;
+    }
+    entry.range = fallbackRange;
+    if (!entry.uri) {
+        entry.uri = document.uri;
+    }
+}
+
+function findFallbackComponentContractEntryRange(entry, kind, descriptor, document) {
+    const scriptRange = findFallbackComponentContractEntryRangeInBlock(
+        descriptor?.script,
+        document,
+        entry,
+        kind
+    );
+    if (scriptRange) {
+        return scriptRange;
+    }
+    if (kind === "slot") {
+        return findFallbackComponentContractEntryRangeInSlotTemplate(descriptor?.template, document, entry);
+    }
+    return null;
+}
+
+function findFallbackComponentContractEntryRangeInBlock(block, document, entry, kind) {
+    if (!block?.content) {
+        return null;
+    }
+    const source = block.content;
+    const label = String(entry?.label || "").trim();
+    if (!label) {
+        return null;
+    }
+    const patterns = kind === "event"
+        ? [
+            new RegExp(`(["'])${escapeRegExp(label)}\\1`, "g")
+        ]
+        : [
+            new RegExp(`\\b${escapeRegExp(label)}\\b\\s*\\??:`, "g"),
+            new RegExp(`(["'])${escapeRegExp(label)}\\1\\s*:`, "g")
+        ];
+
+    for (const pattern of patterns) {
+        const match = pattern.exec(source);
+        if (!match) {
+            continue;
+        }
+        const tokenIndex = match[0].indexOf(label);
+        if (tokenIndex < 0) {
+            continue;
+        }
+        const start = block.contentStart + (match.index || 0) + tokenIndex;
+        return rangeFromOffsets(document, start, start + label.length);
+    }
+    return null;
+}
+
+function findFallbackComponentContractEntryRangeInSlotTemplate(templateBlock, document, entry) {
+    if (!templateBlock?.content) {
+        return null;
+    }
+    const label = String(entry?.label || "").trim();
+    if (!label) {
+        return null;
+    }
+    const pattern = new RegExp(`name\\s*=\\s*([\"'])${escapeRegExp(label)}\\1`, "g");
+    const match = pattern.exec(templateBlock.content);
+    if (!match) {
+        return null;
+    }
+    const tokenIndex = match[0].indexOf(label);
+    if (tokenIndex < 0) {
+        return null;
+    }
+    const start = templateBlock.contentStart + (match.index || 0) + tokenIndex;
+    return rangeFromOffsets(document, start, start + label.length);
+}
+
 function collectComponentContractDiagnostics(document, node, contract, nodes) {
     const diagnostics = [];
 
@@ -1112,7 +1338,7 @@ function getComponentContractAttributeCompletions(node) {
     for (const prop of contract.props.values()) {
         const label = normalizeContractPropName(prop.label);
         completions.push({
-            detail: `Prop declared by ${node.name}`,
+            detail: formatComponentContractCompletionDetail(node.name, "prop", prop),
             insertText: `${label}={{$1}}`,
             insertTextFormat: "snippet",
             kind: "html-attr",
@@ -1123,7 +1349,7 @@ function getComponentContractAttributeCompletions(node) {
         const eventName = normalizeContractEventName(emit.label);
         const label = eventName.includes(":") ? `on:${eventName}` : `on-${eventName}`;
         completions.push({
-            detail: `Event emitted by ${node.name}`,
+            detail: formatComponentContractCompletionDetail(node.name, "event", emit),
             insertText: `${label}={{$1}}`,
             insertTextFormat: "snippet",
             kind: "html-attr",
@@ -1172,7 +1398,7 @@ function formatComponentContractMarkdown(contract) {
 
 function formatContractEntryMarkdown(targetMap) {
     return Array.from(targetMap.values())
-        .map(entry => `- \`${entry.label}\``)
+        .map(entry => formatComponentContractEntryMarkdown(entry))
         .join("\n");
 }
 
@@ -1248,6 +1474,78 @@ function dedupeCompletionItems(items) {
         seen.add(key);
         return true;
     });
+}
+
+function dedupeDiagnostics(items) {
+    const seen = new Set();
+    return (items || []).filter(item => {
+        const key = [
+            item.message,
+            item.severity || "",
+            item.range?.start?.line ?? "",
+            item.range?.start?.character ?? "",
+            item.range?.end?.line ?? "",
+            item.range?.end?.character ?? ""
+        ].join(":");
+        if (seen.has(key)) {
+            return false;
+        }
+        seen.add(key);
+        return true;
+    });
+}
+
+function compactTypeText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function formatComponentContractEntryMarkdown(entry) {
+    const parts = [];
+    if (entry?.optional === false) {
+        parts.push("required");
+    } else if (entry?.optional === true) {
+        parts.push("optional");
+    }
+    if (entry?.typeText) {
+        parts.push(`type: \`${compactTypeText(entry.typeText)}\``);
+    }
+    return parts.length > 0
+        ? `- \`${entry.label}\` (${parts.join(", ")})`
+        : `- \`${entry.label}\``;
+}
+
+function formatComponentContractCompletionDetail(componentName, kind, entry) {
+    const label = kind === "event" ? "Event emitted" : "Prop declared";
+    const parts = [`${label} by ${componentName}`];
+    if (entry?.optional === false) {
+        parts.push("required");
+    } else if (entry?.optional === true && kind !== "event") {
+        parts.push("optional");
+    }
+    if (entry?.typeText) {
+        parts.push(compactTypeText(entry.typeText));
+    }
+    return parts.join(" - ");
+}
+
+function formatComponentContractItemHoverMarkdown(kind, componentName, entry) {
+    const title = kind === "event"
+        ? `**Event \`${entry.label}\`**`
+        : (kind === "slot" ? `**Slot \`${entry.label}\`**` : `**Prop \`${entry.label}\`**`);
+    const lines = [
+        title,
+        "",
+        `Declared by \`${componentName}\`.`
+    ];
+    if (entry?.optional === false && kind !== "event") {
+        lines.push("", "**Required**");
+    } else if (entry?.optional === true && kind !== "event") {
+        lines.push("", "**Optional**");
+    }
+    if (entry?.typeText) {
+        lines.push("", `Type: \`${compactTypeText(entry.typeText)}\``);
+    }
+    return lines.join("\n");
 }
 
 function resolveComponentContractNavigation(analysis, offset) {
@@ -1627,7 +1925,7 @@ function resolveComponentContractItemHover(analysis, document, offset) {
             return {
                 contents: {
                     kind: "markdown",
-                    value: `**${entryType === "event" ? "Event" : "Prop"} \`${entry.label}\`**\n\nDeclared by \`${currentAttributeOwner.name}\`.`
+                    value: formatComponentContractItemHoverMarkdown(entryType, currentAttributeOwner.name, entry)
                 },
                 range: currentAttribute.range
             };
@@ -1645,7 +1943,7 @@ function resolveComponentContractItemHover(analysis, document, offset) {
                 return {
                     contents: {
                         kind: "markdown",
-                        value: `**Slot \`${slotEntry.label}\`**\n\nDeclared by \`${parentNode.name}\`.`
+                        value: formatComponentContractItemHoverMarkdown("slot", parentNode.name, slotEntry)
                     },
                     range: slotNameAttribute.valueRange || slotNameAttribute.range
                 };
@@ -4413,35 +4711,19 @@ function buildComponentContractDefinitionSyncEdit(analysis, node, options = {}) 
 
     const edits = [];
     if (includeProps && uniqueProps.length > 0) {
-        const edit = createObjectMacroInsertionEdit(
-            context,
-            "defineProps",
-            uniqueProps.map(name => formatObjectContractKey(name, "null")).join(", ")
-        );
+        const edit = createPropContractInsertionEdit(context, uniqueProps);
         if (edit) {
             edits.push(edit);
         }
     }
     if (includeEvents && uniqueEvents.length > 0) {
-        const edit = createArrayMacroInsertionEdit(
-            context,
-            "defineEmits",
-            uniqueEvents.map(name => JSON.stringify(name)).join(", ")
-        ) || createObjectMacroInsertionEdit(
-            context,
-            "defineEmits",
-            uniqueEvents.map(name => formatObjectContractKey(name, "null")).join(", ")
-        );
+        const edit = createEmitContractInsertionEdit(context, uniqueEvents);
         if (edit) {
             edits.push(edit);
         }
     }
     if (includeSlots && uniqueSlots.length > 0) {
-        const edit = createObjectMacroInsertionEdit(
-            context,
-            "defineSlots",
-            uniqueSlots.map(name => formatObjectContractKey(name, "true")).join(", ")
-        );
+        const edit = createSlotContractInsertionEdit(context, uniqueSlots);
         if (edit) {
             edits.push(edit);
         }
@@ -6025,7 +6307,7 @@ function createComponentContractDeclarationEdit(issue) {
 
     if (issue.kind === "prop") {
         const canonical = normalizePropRenameInput(issue.currentName);
-        const edit = canonical ? createObjectMacroInsertionEdit(context, "defineProps", formatObjectContractKey(canonical, "null")) : null;
+        const edit = canonical ? createPropContractInsertionEdit(context, [canonical]) : null;
         return edit ? {
             edits: [edit],
             title: `Declare prop \`${normalizeContractPropName(canonical)}\` in \`${issue.componentName}\``,
@@ -6035,10 +6317,7 @@ function createComponentContractDeclarationEdit(issue) {
 
     if (issue.kind === "event handler") {
         const canonical = normalizeEventRenameInput(issue.currentName);
-        const edit = canonical
-            ? (createArrayMacroInsertionEdit(context, "defineEmits", JSON.stringify(canonical))
-                || createObjectMacroInsertionEdit(context, "defineEmits", formatObjectContractKey(canonical, "null")))
-            : null;
+        const edit = canonical ? createEmitContractInsertionEdit(context, [canonical]) : null;
         return edit ? {
             edits: [edit],
             title: `Declare event \`${canonical}\` in \`${issue.componentName}\``,
@@ -6049,7 +6328,7 @@ function createComponentContractDeclarationEdit(issue) {
     if (issue.kind === "slot") {
         const canonical = normalizeSlotRenameInput(issue.currentName);
         const edit = canonical && canonical !== "default"
-            ? createObjectMacroInsertionEdit(context, "defineSlots", formatObjectContractKey(canonical, "true"))
+            ? createSlotContractInsertionEdit(context, [canonical])
             : null;
         return edit ? {
             edits: [edit],
@@ -6076,6 +6355,163 @@ function readNdComponentSourceContext(targetUri) {
     } catch {
         return null;
     }
+}
+
+function createPropContractInsertionEdit(context, names) {
+    const normalized = Array.from(new Set((names || []).map(normalizePropRenameInput).filter(Boolean)));
+    if (normalized.length === 0) {
+        return null;
+    }
+    return createTypedContractInsertionEdit(context, "defineProps", "prop", normalized)
+        || createObjectMacroInsertionEdit(
+            context,
+            "defineProps",
+            normalized.map(name => formatObjectContractKey(name, "null")).join(", ")
+        );
+}
+
+function createEmitContractInsertionEdit(context, names) {
+    const normalized = Array.from(new Set((names || []).map(normalizeEventRenameInput).filter(Boolean)));
+    if (normalized.length === 0) {
+        return null;
+    }
+    return createTypedContractInsertionEdit(context, "defineEmits", "event", normalized)
+        || createArrayMacroInsertionEdit(
+            context,
+            "defineEmits",
+            normalized.map(name => JSON.stringify(name)).join(", ")
+        )
+        || createObjectMacroInsertionEdit(
+            context,
+            "defineEmits",
+            normalized.map(name => formatObjectContractKey(name, "null")).join(", ")
+        );
+}
+
+function createSlotContractInsertionEdit(context, names) {
+    const normalized = Array.from(new Set((names || []).map(normalizeSlotRenameInput).filter(name => name && name !== "default")));
+    if (normalized.length === 0) {
+        return null;
+    }
+    return createTypedContractInsertionEdit(context, "defineSlots", "slot", normalized)
+        || createObjectMacroInsertionEdit(
+            context,
+            "defineSlots",
+            normalized.map(name => formatObjectContractKey(name, "true")).join(", ")
+        );
+}
+
+function createTypedContractInsertionEdit(context, macroName, kind, names) {
+    const scriptBlock = context.descriptor?.script;
+    if (!scriptBlock?.content || !names?.length) {
+        return null;
+    }
+    for (const call of findMacroCalls(scriptBlock.content, macroName)) {
+        const typeArgument = getFirstTypeArgument(call);
+        if (!typeArgument?.text) {
+            continue;
+        }
+        const target = resolveTypedMacroInsertionTarget(context, call, typeArgument);
+        if (!target) {
+            continue;
+        }
+        const lines = buildTypedContractInsertionLines(kind, names);
+        if (lines.length === 0) {
+            continue;
+        }
+        return createTypedBodyInsertionEdit(context, target, lines);
+    }
+    return null;
+}
+
+function resolveTypedMacroInsertionTarget(context, call, typeArgument) {
+    const scriptBlock = context.descriptor?.script;
+    const typeText = String(typeArgument.text || "").trim();
+    if (!scriptBlock?.content || !typeText) {
+        return null;
+    }
+    if (typeText.startsWith("{")) {
+        const openBrace = typeText.indexOf("{");
+        const closeBrace = findMatchingBrace(typeText, openBrace);
+        if (closeBrace < 0) {
+            return null;
+        }
+        return {
+            absoluteBodyEnd: scriptBlock.contentStart + call.typeArgumentsStart + typeArgument.start + closeBrace,
+            absoluteBodyStart: scriptBlock.contentStart + call.typeArgumentsStart + typeArgument.start + openBrace + 1
+        };
+    }
+    if (!/^[A-Za-z_$][\w$]*$/.test(typeText)) {
+        return null;
+    }
+    return findNamedTypeLiteralDeclaration(context, typeText);
+}
+
+function findNamedTypeLiteralDeclaration(context, typeName) {
+    const scriptBlock = context.descriptor?.script;
+    if (!scriptBlock?.content) {
+        return null;
+    }
+    const source = scriptBlock.content;
+    const patterns = [
+        new RegExp(`\\btype\\s+${escapeRegExp(typeName)}\\s*=`, "g"),
+        new RegExp(`\\binterface\\s+${escapeRegExp(typeName)}\\b`, "g")
+    ];
+    for (const pattern of patterns) {
+        for (const match of source.matchAll(pattern)) {
+            const searchStart = (match.index || 0) + match[0].length;
+            const openBrace = source.indexOf("{", searchStart);
+            if (openBrace < 0) {
+                continue;
+            }
+            const closeBrace = findMatchingBrace(source, openBrace);
+            if (closeBrace < 0) {
+                continue;
+            }
+            return {
+                absoluteBodyEnd: scriptBlock.contentStart + closeBrace,
+                absoluteBodyStart: scriptBlock.contentStart + openBrace + 1
+            };
+        }
+    }
+    return null;
+}
+
+function buildTypedContractInsertionLines(kind, names) {
+    if (kind === "prop") {
+        return names.map(name => `${formatTypedObjectTypeKey(name)}?: unknown;`);
+    }
+    if (kind === "event") {
+        return names.map(name => `(event: ${JSON.stringify(name)}): void;`);
+    }
+    if (kind === "slot") {
+        return names.map(name => `${formatTypedObjectTypeKey(name)}?: () => unknown;`);
+    }
+    return [];
+}
+
+function formatTypedObjectTypeKey(name) {
+    return /^[A-Za-z_$][\w$]*$/.test(name)
+        ? name
+        : JSON.stringify(name);
+}
+
+function createTypedBodyInsertionEdit(context, target, lines) {
+    const document = createTextBufferDocumentLike(context.uri, context.source);
+    const bodyText = context.source.slice(target.absoluteBodyStart, target.absoluteBodyEnd);
+    const closingIndent = getLineIndentAtOffset(document, target.absoluteBodyEnd);
+    const entryIndent = `${closingIndent}  `;
+    if (bodyText.trim()) {
+        const insertOffset = target.absoluteBodyStart + bodyText.trimEnd().length;
+        return {
+            newText: `\n${entryIndent}${lines.join(`\n${entryIndent}`)}`,
+            range: rangeFromOffsets(document, insertOffset, insertOffset)
+        };
+    }
+    return {
+        newText: `\n${entryIndent}${lines.join(`\n${entryIndent}`)}\n${closingIndent}`,
+        range: rangeFromOffsets(document, target.absoluteBodyStart, target.absoluteBodyStart)
+    };
 }
 
 function createObjectMacroInsertionEdit(context, macroName, entryText) {
@@ -6145,6 +6581,21 @@ function getFirstCallArgument(call) {
         return null;
     }
     const entry = splitTopLevelEntries(call.argumentsText).find(item => item.text.trim());
+    if (!entry) {
+        return null;
+    }
+    const leadingTrim = entry.text.length - entry.text.trimStart().length;
+    return {
+        start: entry.start + leadingTrim,
+        text: entry.text.trim()
+    };
+}
+
+function getFirstTypeArgument(call) {
+    if (!call?.typeArgumentsText) {
+        return null;
+    }
+    const entry = splitTopLevelEntries(call.typeArgumentsText).find(item => item.text.trim());
     if (!entry) {
         return null;
     }
@@ -7359,6 +7810,63 @@ function findMatchingParenthesis(source, openIndex) {
         if (char === "(") {
             depth += 1;
         } else if (char === ")") {
+            depth -= 1;
+            if (depth === 0) {
+                return index;
+            }
+        }
+    }
+
+    return -1;
+}
+
+function findMatchingAngleBracket(source, openIndex) {
+    let depth = 0;
+    let quote = null;
+
+    for (let index = openIndex; index < source.length; index++) {
+        const char = source[index];
+        const next = source[index + 1];
+
+        if (quote) {
+            if (char === "\\" && next) {
+                index += 1;
+                continue;
+            }
+            if (char === quote) {
+                quote = null;
+            }
+            continue;
+        }
+
+        if (char === "\"" || char === "'" || char === "`") {
+            quote = char;
+            continue;
+        }
+
+        if (char === "/" && next === "/") {
+            index = source.indexOf("\n", index);
+            if (index < 0) {
+                return -1;
+            }
+            continue;
+        }
+
+        if (char === "/" && next === "*") {
+            const commentEnd = source.indexOf("*/", index + 2);
+            if (commentEnd < 0) {
+                return -1;
+            }
+            index = commentEnd + 1;
+            continue;
+        }
+
+        if (char === "<") {
+            depth += 1;
+            continue;
+        }
+
+        if (char === ">" && source[index - 1] !== "=") {
             depth -= 1;
             if (depth === 0) {
                 return index;

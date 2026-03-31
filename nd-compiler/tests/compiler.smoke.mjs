@@ -197,6 +197,16 @@ const emitSave = () => emit("save", count ?? 0);
 </script>
 `;
 
+const arglessDefineModelSource = `
+<template>
+  <div>{{modelValue}}</div>
+</template>
+
+<script setup lang="ts">
+const model = defineModel<string>();
+</script>
+`;
+
 const unknownTemplateSource = `
 <template>
   <div>
@@ -379,6 +389,11 @@ assert.equal(typeSurface.props.find(item => item.name === "checked")?.typeText, 
 assert.equal(typeSurface.emits.find(item => item.name === "save")?.typeText, "(payload: number) => void");
 assert.equal(typeSurface.emits.find(item => item.name === "update:checked")?.typeText, "(value: boolean) => unknown");
 assert.equal(typeSurface.slots.find(item => item.name === "footer")?.typeText, "(props: {\n    count: number;\n}) => unknown");
+const arglessModelSurface = extractNdTypeSurface(arglessDefineModelSource, {
+    filename: "ArglessModel.nd"
+});
+assert.equal(arglessModelSurface.props.find(item => item.name === "modelValue")?.typeText, "string");
+assert.equal(arglessModelSurface.emits.find(item => item.name === "update:modelValue")?.typeText, "(value: string) => unknown");
 const declarationCode = generateNdDeclaration(typeSurfaceSource, {
     filename: "TypedContract.nd",
     typeSurface
